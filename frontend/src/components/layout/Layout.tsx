@@ -1,6 +1,8 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, Building2, CalendarDays } from 'lucide-react'
+import { LayoutDashboard, Building2, CalendarDays, Sun, Moon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTheme } from '@/components/ThemeProvider'
+import { Button } from '@/components/ui/button'
 
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -9,11 +11,16 @@ const nav = [
 ]
 
 export function Layout() {
+  const { theme, toggleTheme } = useTheme()
+
   return (
     <div className="min-h-dvh flex flex-col bg-background">
       <header className="sticky top-0 z-10 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
-        <div className="container flex h-14 items-center px-4">
+        <div className="container flex h-14 items-center justify-between px-4">
           <span className="font-semibold">Bahuleya PMS</span>
+          <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle theme">
+            {theme === 'dark' ? <Sun className="size-5" /> : <Moon className="size-5" />}
+          </Button>
         </div>
       </header>
       <main className="flex-1 overflow-auto p-4 pb-24 md:pb-4">
