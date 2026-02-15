@@ -4,6 +4,7 @@ from app.models.rate_plan import RatePlan
 from app.models.booking import BookingGroup, Booking
 from app.models.payment import Payment
 from app.models.audit_log import AuditLog
+from app.models.expense import Expense
 
 __all__ = [
     "Base",
@@ -14,4 +15,5 @@ __all__ = [
     "Booking",
     "Payment",
     "AuditLog",
+    "Expense",
 ]

@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, Building2, CalendarDays, Sun, Moon } from 'lucide-react'
+import { LayoutDashboard, Building2, CalendarDays, IndianRupee, Sun, Moon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/components/ThemeProvider'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/rooms', label: 'Rooms', icon: Building2 },
   { to: '/bookings', label: 'Bookings', icon: CalendarDays },
+  { to: '/accounts', label: 'Accounts', icon: IndianRupee },
 ]
 
 export function Layout() {

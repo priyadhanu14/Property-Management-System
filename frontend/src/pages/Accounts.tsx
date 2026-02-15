@@ -1,0 +1,478 @@
+import { useState, useMemo } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/api/client'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import {
+  IndianRupee,
+  Plus,
+  X,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  ChevronLeft,
+  ChevronRight,
+  Trash2,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface UnitExpenseDetail {
+  category: string
+  amount: number
+}
+
+interface UnitSummary {
+  room_id: number
+  unit_code: string
+  room_type: string
+  revenue: number
+  expenses: UnitExpenseDetail[]
+  total_expenses: number
+  net: number
+}
+
+interface PropertyExpense {
+  id: number
+  category: string
+  amount: number
+  description: string | null
+}
+
+interface MonthlyTotals {
+  total_revenue: number
+  total_expenses: number
+  net: number
+}
+
+interface MonthlySummaryResponse {
+  month: string
+  units: UnitSummary[]
+  property_wide_expenses: PropertyExpense[]
+  totals: MonthlyTotals
+}
+
+interface ExpenseOut {
+  id: number
+  room_id: number | null
+  category: string
+  amount: number
+  month: string
+  description: string | null
+  created_at: string | null
+}
+
+interface RoomOption {
+  id: number
+  unit_code: string
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const CATEGORIES = [
+  'electricity',
+  'wifi',
+  'cleaning',
+  'maintenance',
+  'water',
+  'other',
+]
+
+function formatCurrency(n: number) {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(n)
+}
+
+function getCurrentMonth() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function shiftMonth(ym: string, delta: number) {
+  const [y, m] = ym.split('-').map(Number)
+  const d = new Date(y, m - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function monthLabel(ym: string) {
+  const [y, m] = ym.split('-').map(Number)
+  return new Date(y, m - 1).toLocaleString('en-IN', {
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function Accounts() {
+  const queryClient = useQueryClient()
+  const [month, setMonth] = useState(getCurrentMonth)
+  const [showForm, setShowForm] = useState(false)
+
+  // Form state
+  const [formRoomId, setFormRoomId] = useState<string>('')
+  const [formCategory, setFormCategory] = useState(CATEGORIES[0])
+  const [formAmount, setFormAmount] = useState('')
+  const [formDesc, setFormDesc] = useState('')
+
+  // ---- Queries ----
+
+  const summaryQuery = useQuery({
+    queryKey: ['monthly-summary', month],
+    queryFn: () =>
+      api.get<MonthlySummaryResponse>(`/accounts/monthly-summary?month=${month}`),
+  })
+
+  const roomsQuery = useQuery({
+    queryKey: ['rooms-list'],
+    queryFn: () => api.get<{ rooms: RoomOption[] }>('/rooms'),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const rooms = roomsQuery.data?.rooms ?? []
+
+  // ---- Mutations ----
+
+  const createExpense = useMutation({
+    mutationFn: (body: {
+      room_id: number | null
+      category: string
+      amount: number
+      month: string
+      description: string | null
+    }) => api.post<ExpenseOut>('/accounts/expenses', body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['monthly-summary', month] })
+      resetForm()
+    },
+  })
+
+  const deleteExpense = useMutation({
+    mutationFn: (id: number) => api.delete<void>(`/accounts/expenses/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['monthly-summary', month] })
+    },
+  })
+
+  function resetForm() {
+    setFormRoomId('')
+    setFormCategory(CATEGORIES[0])
+    setFormAmount('')
+    setFormDesc('')
+    setShowForm(false)
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const [y, m] = month.split('-')
+    createExpense.mutate({
+      room_id: formRoomId ? Number(formRoomId) : null,
+      category: formCategory,
+      amount: Number(formAmount),
+      month: `${y}-${m}-01`,
+      description: formDesc || null,
+    })
+  }
+
+  const summary = summaryQuery.data
+  const isLoading = summaryQuery.isLoading
+
+  return (
+    <div className="space-y-6">
+      {/* ---- Header + month picker ---- */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-semibold">Accounts</h1>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setMonth((m) => shiftMonth(m, -1))}
+            aria-label="Previous month"
+          >
+            <ChevronLeft className="size-4" />
+          </Button>
+          <span className="min-w-[140px] text-center font-medium">
+            {monthLabel(month)}
+          </span>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setMonth((m) => shiftMonth(m, 1))}
+            aria-label="Next month"
+          >
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* ---- Totals cards ---- */}
+      {summary && (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+              <TrendingUp className="size-4 text-emerald-500" />
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-emerald-500">
+                {formatCurrency(summary.totals.total_revenue)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
+              <TrendingDown className="size-4 text-red-500" />
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-red-500">
+                {formatCurrency(summary.totals.total_expenses)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
+              <Wallet className="size-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <p
+                className={cn(
+                  'text-2xl font-bold',
+                  summary.totals.net >= 0 ? 'text-emerald-500' : 'text-red-500'
+                )}
+              >
+                {formatCurrency(summary.totals.net)}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ---- Per-unit breakdown ---- */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <IndianRupee className="size-5" />
+            Revenue &amp; Expenses per Unit
+          </CardTitle>
+          <Button size="sm" onClick={() => setShowForm(true)}>
+            <Plus className="size-4" />
+            Add Expense
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {isLoading && (
+            <p className="text-muted-foreground">Loading...</p>
+          )}
+          {summary && summary.units.length === 0 && (
+            <p className="text-muted-foreground">
+              No rooms found. Add rooms first.
+            </p>
+          )}
+          {summary && summary.units.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-3 pr-4 font-medium">Unit</th>
+                    <th className="py-3 pr-4 font-medium">Type</th>
+                    <th className="py-3 pr-4 font-medium text-right">Revenue</th>
+                    <th className="py-3 pr-4 font-medium">Expenses</th>
+                    <th className="py-3 pr-4 font-medium text-right">Total Exp.</th>
+                    <th className="py-3 font-medium text-right">Net</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.units.map((u) => (
+                    <tr key={u.room_id} className="border-b last:border-0">
+                      <td className="py-3 pr-4 font-medium">{u.unit_code}</td>
+                      <td className="py-3 pr-4 text-muted-foreground">
+                        {u.room_type}
+                      </td>
+                      <td className="py-3 pr-4 text-right text-emerald-500">
+                        {formatCurrency(u.revenue)}
+                      </td>
+                      <td className="py-3 pr-4">
+                        {u.expenses.length === 0 ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <ul className="space-y-0.5">
+                            {u.expenses.map((e, i) => (
+                              <li key={i} className="flex justify-between gap-4">
+                                <span className="capitalize">{e.category}</span>
+                                <span className="text-red-500">
+                                  {formatCurrency(e.amount)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </td>
+                      <td className="py-3 pr-4 text-right text-red-500">
+                        {formatCurrency(u.total_expenses)}
+                      </td>
+                      <td
+                        className={cn(
+                          'py-3 text-right font-semibold',
+                          u.net >= 0 ? 'text-emerald-500' : 'text-red-500'
+                        )}
+                      >
+                        {formatCurrency(u.net)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ---- Property-wide expenses ---- */}
+      {summary && summary.property_wide_expenses.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Property-wide Expenses</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {summary.property_wide_expenses.map((e) => (
+                <li
+                  key={e.id}
+                  className="flex items-center justify-between rounded-md border px-3 py-2"
+                >
+                  <div>
+                    <span className="font-medium capitalize">{e.category}</span>
+                    {e.description && (
+                      <span className="ml-2 text-muted-foreground">
+                        — {e.description}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-red-500">
+                      {formatCurrency(e.amount)}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7"
+                      onClick={() => deleteExpense.mutate(e.id)}
+                    >
+                      <Trash2 className="size-3.5 text-destructive" />
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ---- Add expense modal/overlay ---- */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg">Add Expense</CardTitle>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={resetForm}
+              >
+                <X className="size-4" />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Room */}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">
+                    Unit (leave empty for property-wide)
+                  </label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={formRoomId}
+                    onChange={(e) => setFormRoomId(e.target.value)}
+                  >
+                    <option value="">Property-wide</option>
+                    {rooms.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.unit_code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Category */}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Category</label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={formCategory}
+                    onChange={(e) => setFormCategory(e.target.value)}
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c.charAt(0).toUpperCase() + c.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Amount */}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Amount (INR)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    required
+                    placeholder="e.g. 3200"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={formAmount}
+                    onChange={(e) => setFormAmount(e.target.value)}
+                  />
+                </div>
+
+                {/* Description */}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">
+                    Description (optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. EB bill for Jan"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={formDesc}
+                    onChange={(e) => setFormDesc(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button type="button" variant="outline" onClick={resetForm}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={createExpense.isPending}>
+                    {createExpense.isPending ? 'Saving...' : 'Save'}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -4,6 +4,7 @@ import { Layout } from '@/components/layout/Layout'
 import { Dashboard } from '@/pages/Dashboard'
 import { Rooms } from '@/pages/Rooms'
 import { Bookings } from '@/pages/Bookings'
+import { Accounts } from '@/pages/Accounts'
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="rooms" element={<Rooms />} />
           <Route path="bookings" element={<Bookings />} />
+          <Route path="accounts" element={<Accounts />} />
         </Route>
       </Routes>
       <Toaster />
