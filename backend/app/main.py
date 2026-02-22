@@ -1,12 +1,61 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from app.api.v1 import router as api_v1
+from app.db.session import async_session_maker
+from app.models.room import RoomType, Room
+
+# Fixed rooms for Bahuleya Service Apartments
+SEED_ROOM_TYPES = ["2BHK", "3BHK"]
+SEED_ROOMS = [
+    # (unit_code, room_type_name)
+    ("A4", "2BHK"),
+    ("B1", "2BHK"),
+    ("B2", "2BHK"),
+    ("B3", "2BHK"),
+    ("B4", "2BHK"),
+    ("C1", "3BHK"),
+]
+
+
+async def seed_rooms() -> None:
+    """Insert the fixed set of rooms if they don't exist yet."""
+    async with async_session_maker() as session:
+        # Ensure room types exist
+        type_map: dict[str, int] = {}
+        for name in SEED_ROOM_TYPES:
+            result = await session.execute(
+                select(RoomType).where(RoomType.name == name)
+            )
+            rt = result.scalar_one_or_none()
+            if not rt:
+                rt = RoomType(name=name)
+                session.add(rt)
+                await session.flush()
+            type_map[name] = rt.id
+
+        # Ensure rooms exist
+        for unit_code, type_name in SEED_ROOMS:
+            result = await session.execute(
+                select(Room).where(Room.unit_code == unit_code)
+            )
+            if not result.scalar_one_or_none():
+                session.add(
+                    Room(
+                        unit_code=unit_code,
+                        room_type_id=type_map[type_name],
+                        is_active=True,
+                    )
+                )
+
+        await session.commit()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await seed_rooms()
     yield
 
 

@@ -1,32 +1,54 @@
 import { useMemo, useState } from 'react'
-import { ChevronLeft } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ChevronLeft, AlertCircle } from 'lucide-react'
+import { api } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { BookingBlock } from '@/components/rooms/BookingBlock'
 import { BookingDetailSheet } from '@/components/rooms/BookingDetailSheet'
-import { getBookingsForUnit } from '@/data/mockRooms'
 import { assignLanes, bookingInRange, startOfDay, endOfDay, weekDays } from '@/lib/timeline'
-import type { BookingBlock as BookingBlockType, TimelineView } from '@/types/rooms'
+import type { BookingBlock as BookingBlockType, BookingResponse, TimelineView } from '@/types/rooms'
 
 interface RoomTimelineProps {
+  roomId: number
   unitCode: string
   onBack: () => void
+}
+
+interface TimelineAPIResponse {
+  room_id: number
+  unit_code: string
+  bookings: BookingResponse[]
 }
 
 const LANE_HEIGHT = 40
 const HOURS_PER_DAY = 24
 
+function formatDate(d: Date): string {
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+}
+
+function toISODate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function apiBookingToBlock(b: BookingResponse, unitCode: string): BookingBlockType {
+  return {
+    id: b.id,
+    unit_code: unitCode,
+    guest_name: b.guest_name,
+    event_type: b.event_type,
+    start: b.start_datetime,
+    end: b.end_datetime,
+    status: b.status as BookingBlockType['status'],
+  }
+}
+
 function getRangeForView(view: TimelineView, baseDate: Date): { start: string; end: string } {
   if (view === 'day') {
-    return {
-      start: startOfDay(baseDate),
-      end: endOfDay(baseDate),
-    }
+    return { start: startOfDay(baseDate), end: endOfDay(baseDate) }
   }
   const days = weekDays(baseDate)
-  return {
-    start: startOfDay(days[0]),
-    end: endOfDay(days[6]),
-  }
+  return { start: startOfDay(days[0]), end: endOfDay(days[6]) }
 }
 
 function dayScaleStart(view: TimelineView, baseDate: Date): number {
@@ -41,8 +63,9 @@ function dayScaleEnd(view: TimelineView, baseDate: Date): number {
   return new Date(endOfDay(days[6])).getTime()
 }
 
-export function RoomTimeline({ unitCode, onBack }: RoomTimelineProps) {
-  const [view, setView] = useState<TimelineView>('day')
+export function RoomTimeline({ roomId, unitCode, onBack }: RoomTimelineProps) {
+  const queryClient = useQueryClient()
+  const [view, setView] = useState<TimelineView>('week')
   const [baseDate, setBaseDate] = useState(() => new Date())
   const [selectedBooking, setSelectedBooking] = useState<BookingBlockType | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -52,16 +75,35 @@ export function RoomTimeline({ unitCode, onBack }: RoomTimelineProps) {
   const scaleEnd = dayScaleEnd(view, baseDate)
   const scaleDuration = scaleEnd - scaleStart
 
+  const fromDate = toISODate(new Date(rangeStart))
+  const toDate = toISODate(new Date(rangeEnd))
+
+  const timelineQuery = useQuery({
+    queryKey: ['room-timeline', roomId, fromDate, toDate],
+    queryFn: () =>
+      api.get<TimelineAPIResponse>(
+        `/rooms/${roomId}/timeline?from_date=${fromDate}&to_date=${toDate}`
+      ),
+  })
+
   const bookingsInRange = useMemo(() => {
-    const all = getBookingsForUnit(unitCode)
-    return all.filter((b) => bookingInRange(b.start, b.end, rangeStart, rangeEnd))
-  }, [unitCode, rangeStart, rangeEnd])
+    if (!timelineQuery.data) return []
+    return timelineQuery.data.bookings
+      .map((b) => apiBookingToBlock(b, unitCode))
+      .filter((b) => bookingInRange(b.start, b.end, rangeStart, rangeEnd))
+  }, [timelineQuery.data, unitCode, rangeStart, rangeEnd])
 
   const withLanes = useMemo(() => assignLanes(bookingsInRange), [bookingsInRange])
 
   const openDetail = (b: BookingBlockType) => {
     setSelectedBooking(b)
     setSheetOpen(true)
+  }
+
+  const handleActionDone = () => {
+    setSheetOpen(false)
+    setSelectedBooking(null)
+    queryClient.invalidateQueries({ queryKey: ['room-timeline', roomId] })
   }
 
   const dayLabels = view === 'week' ? weekDays(baseDate) : [baseDate]
@@ -76,23 +118,14 @@ export function RoomTimeline({ unitCode, onBack }: RoomTimelineProps) {
       </div>
 
       <div className="flex gap-2">
-        <Button
-          variant={view === 'day' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setView('day')}
-        >
+        <Button variant={view === 'day' ? 'default' : 'outline'} size="sm" onClick={() => setView('day')}>
           Day
         </Button>
-        <Button
-          variant={view === 'week' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setView('week')}
-        >
+        <Button variant={view === 'week' ? 'default' : 'outline'} size="sm" onClick={() => setView('week')}>
           Week
         </Button>
       </div>
 
-      {/* Date nav (simple: today / prev / next) */}
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Button
           variant="outline"
@@ -107,8 +140,8 @@ export function RoomTimeline({ unitCode, onBack }: RoomTimelineProps) {
         </Button>
         <span>
           {view === 'day'
-            ? baseDate.toLocaleDateString()
-            : `${weekDays(baseDate)[0].toLocaleDateString()} – ${weekDays(baseDate)[6].toLocaleDateString()}`}
+            ? formatDate(baseDate)
+            : `${formatDate(weekDays(baseDate)[0])} – ${formatDate(weekDays(baseDate)[6])}`}
         </span>
         <Button
           variant="outline"
@@ -123,10 +156,15 @@ export function RoomTimeline({ unitCode, onBack }: RoomTimelineProps) {
         </Button>
       </div>
 
-      {/* Timeline grid */}
+      {timelineQuery.isError && (
+        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+          <AlertCircle className="size-4 shrink-0" />
+          <span>Failed to load timeline</span>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-lg border bg-card">
         <div className="min-w-[320px] p-2">
-          {/* Time / day labels */}
           <div className="flex border-b pb-1 mb-2">
             {view === 'day' ? (
               <>
@@ -147,16 +185,23 @@ export function RoomTimeline({ unitCode, onBack }: RoomTimelineProps) {
                   className="flex-shrink-0 text-[10px] text-muted-foreground text-center"
                   style={{ width: `${100 / 7}%` }}
                 >
-                  {d.toLocaleDateString('en-US', { weekday: 'short' })}
+                  {`${d.toLocaleDateString('en-US', { weekday: 'short' })} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`}
                 </div>
               ))
             )}
           </div>
 
-          {/* Lanes (rows) for this unit's bookings */}
-          {withLanes.length === 0 ? (
+          {timelineQuery.isLoading && (
+            <div className="flex items-center justify-center py-8">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          )}
+
+          {!timelineQuery.isLoading && withLanes.length === 0 && (
             <p className="py-4 text-center text-sm text-muted-foreground">No bookings in range</p>
-          ) : (
+          )}
+
+          {withLanes.length > 0 && (
             <div className="relative">
               {Array.from(
                 { length: Math.max(...withLanes.map((b) => b.lane)) + 1 },
@@ -195,6 +240,7 @@ export function RoomTimeline({ unitCode, onBack }: RoomTimelineProps) {
         booking={selectedBooking}
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
+        onActionDone={handleActionDone}
       />
     </div>
   )

@@ -80,8 +80,19 @@ const CATEGORIES = [
   'cleaning',
   'maintenance',
   'water',
+  'staff_salary',
   'other',
 ]
+
+const CATEGORY_LABELS: Record<string, string> = {
+  electricity: 'Electricity',
+  wifi: 'WiFi',
+  cleaning: 'Cleaning',
+  maintenance: 'Maintenance',
+  water: 'Water',
+  staff_salary: 'Staff Salary',
+  other: 'Other',
+}
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-IN', {
@@ -123,6 +134,7 @@ export function Accounts() {
   const [formRoomId, setFormRoomId] = useState<string>('')
   const [formCategory, setFormCategory] = useState(CATEGORIES[0])
   const [formAmount, setFormAmount] = useState('')
+  const [formDate, setFormDate] = useState('')
   const [formDesc, setFormDesc] = useState('')
 
   // ---- Queries ----
@@ -168,18 +180,20 @@ export function Accounts() {
     setFormRoomId('')
     setFormCategory(CATEGORIES[0])
     setFormAmount('')
+    setFormDate('')
     setFormDesc('')
     setShowForm(false)
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const [y, m] = month.split('-')
+    // Use picked date or fall back to first of current month
+    const expenseMonth = formDate || `${month}-01`
     createExpense.mutate({
       room_id: formRoomId ? Number(formRoomId) : null,
       category: formCategory,
       amount: Number(formAmount),
-      month: `${y}-${m}-01`,
+      month: expenseMonth,
       description: formDesc || null,
     })
   }
@@ -310,7 +324,7 @@ export function Accounts() {
                           <ul className="space-y-0.5">
                             {u.expenses.map((e, i) => (
                               <li key={i} className="flex justify-between gap-4">
-                                <span className="capitalize">{e.category}</span>
+                                <span>{CATEGORY_LABELS[e.category] ?? e.category}</span>
                                 <span className="text-red-500">
                                   {formatCurrency(e.amount)}
                                 </span>
@@ -353,7 +367,7 @@ export function Accounts() {
                   className="flex items-center justify-between rounded-md border px-3 py-2"
                 >
                   <div>
-                    <span className="font-medium capitalize">{e.category}</span>
+                    <span className="font-medium">{CATEGORY_LABELS[e.category] ?? e.category}</span>
                     {e.description && (
                       <span className="ml-2 text-muted-foreground">
                         — {e.description}
@@ -425,25 +439,37 @@ export function Accounts() {
                   >
                     {CATEGORIES.map((c) => (
                       <option key={c} value={c}>
-                        {c.charAt(0).toUpperCase() + c.slice(1)}
+                        {CATEGORY_LABELS[c] ?? c}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                {/* Amount */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Amount (INR)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.01"
-                    required
-                    placeholder="e.g. 3200"
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    value={formAmount}
-                    onChange={(e) => setFormAmount(e.target.value)}
-                  />
+                {/* Amount + Date */}
+                <div className="grid gap-4 grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Amount (INR) *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      required
+                      placeholder="e.g. 3200"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={formAmount}
+                      onChange={(e) => setFormAmount(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Date *</label>
+                    <input
+                      type="date"
+                      required
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={formDate}
+                      onChange={(e) => setFormDate(e.target.value)}
+                    />
+                  </div>
                 </div>
 
                 {/* Description */}
