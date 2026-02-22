@@ -23,3 +23,4 @@ class Room(Base):
 
     room_type: Mapped["RoomType"] = relationship("RoomType", back_populates="rooms")
     bookings: Mapped[list["Booking"]] = relationship("Booking", back_populates="room")
+    expenses: Mapped[list["Expense"]] = relationship("Expense", back_populates="room")

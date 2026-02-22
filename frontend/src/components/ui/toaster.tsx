@@ -1,7 +1,14 @@
-/**
- * Placeholder for toast notifications.
- * Add sonner or @radix-ui/react-toast when implementing toasts.
- */
+import { Toaster as Sonner } from 'sonner'
+
 export function Toaster() {
-  return null
+  return (
+    <Sonner
+      position="top-right"
+      richColors
+      closeButton
+      toastOptions={{
+        className: 'text-sm',
+      }}
+    />
+  )
 }

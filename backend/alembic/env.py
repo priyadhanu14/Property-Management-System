@@ -8,7 +8,7 @@ from alembic import context
 
 from app.config import settings
 from app.db.base import Base
-from app.models import RoomType, Room, RatePlan, BookingGroup, Booking, Payment, AuditLog
+from app.models import RoomType, Room, RatePlan, BookingGroup, Booking, Payment, AuditLog, Expense
 
 config = context.config
 if config.config_file_name is not None:
