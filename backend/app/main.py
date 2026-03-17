@@ -84,13 +84,9 @@ app.add_middleware(
 app.include_router(api_v1, prefix="/api/v1", tags=["v1"])
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
 @app.api_route("/health", methods=["GET", "HEAD"], include_in_schema=False)
 def health():
-    return {"ok": True}
+    return {"status": "ok"}
 
 # optional (so Render’s default / check also passes)
 @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)

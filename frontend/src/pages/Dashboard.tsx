@@ -1,5 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { api } from '@/api/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,8 +16,10 @@ import {
   LogIn,
   LogOut,
   Wallet,
+  Phone,
+  X,
 } from 'lucide-react'
-import type { DashboardData } from '@/types/rooms'
+import type { DashboardData, Room } from '@/types/rooms'
 import { BookingCalendar } from '@/components/dashboard/BookingCalendar'
 
 function formatCurrency(n: number) {
@@ -30,14 +34,79 @@ function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`animate-pulse rounded bg-muted ${className}`} />
 }
 
+function getCurrentDateStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function Dashboard() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['dashboard-today'],
     queryFn: () => api.get<DashboardData>('/dashboard/today'),
     refetchInterval: 60_000,
   })
+
+  // Enquiry modal state
+  const [showEnquiryForm, setShowEnquiryForm] = useState(false)
+  const [enquiryDate, setEnquiryDate] = useState(getCurrentDateStr)
+  const [enquiryName, setEnquiryName] = useState('')
+  const [enquiryPhone, setEnquiryPhone] = useState('')
+  const [enquiryRoomId, setEnquiryRoomId] = useState('')
+  const [enquiryNotes, setEnquiryNotes] = useState('')
+  // Key to trigger enquiry refetch in calendar after creation
+  const [enquiryRefetchKey, setEnquiryRefetchKey] = useState(0)
+
+  const roomsQuery = useQuery({
+    queryKey: ['rooms'],
+    queryFn: () => api.get<Room[]>('/rooms'),
+    staleTime: 5 * 60_000,
+  })
+  const rooms = roomsQuery.data ?? []
+
+  const createEnquiry = useMutation({
+    mutationFn: (body: {
+      room_id: number | null
+      guest_name: string
+      phone: string
+      enquiry_date: string
+      notes: string | null
+    }) => api.post('/enquiries', body),
+    onSuccess: () => {
+      toast.success('Enquiry logged')
+      setEnquiryRefetchKey((k) => k + 1)
+      queryClient.invalidateQueries({ queryKey: ['calendar-enquiries'] })
+      resetEnquiryForm()
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  function openEnquiryForm(date?: string) {
+    setEnquiryDate(date ?? getCurrentDateStr())
+    setShowEnquiryForm(true)
+  }
+
+  function resetEnquiryForm() {
+    setEnquiryName('')
+    setEnquiryPhone('')
+    setEnquiryRoomId('')
+    setEnquiryNotes('')
+    setEnquiryDate(getCurrentDateStr())
+    setShowEnquiryForm(false)
+  }
+
+  function handleEnquirySubmit(e: React.FormEvent) {
+    e.preventDefault()
+    createEnquiry.mutate({
+      room_id: enquiryRoomId ? Number(enquiryRoomId) : null,
+      guest_name: enquiryName,
+      phone: enquiryPhone,
+      enquiry_date: enquiryDate,
+      notes: enquiryNotes || null,
+    })
+  }
 
   return (
     <div className="space-y-4">
@@ -55,7 +124,10 @@ export function Dashboard() {
         {/* Left: Calendar */}
         <Card className="min-h-[480px]">
           <CardContent className="p-3 sm:p-4 h-full">
-            <BookingCalendar />
+            <BookingCalendar
+              onAddEnquiry={(date) => openEnquiryForm(date)}
+              enquiryRefetchKey={enquiryRefetchKey}
+            />
           </CardContent>
         </Card>
 
@@ -97,6 +169,14 @@ export function Dashboard() {
               >
                 <Wallet className="size-4" />
                 <span className="text-xs">Payments</span>
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => openEnquiryForm()}
+                className="col-span-2 h-auto flex-col gap-1 py-3"
+              >
+                <Phone className="size-4" />
+                <span className="text-xs">Log Enquiry</span>
               </Button>
             </CardContent>
           </Card>
@@ -143,6 +223,99 @@ export function Dashboard() {
           </Card>
         </div>
       </div>
+
+      {/* Log Enquiry modal */}
+      {showEnquiryForm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={resetEnquiryForm}
+        >
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg">Log Enquiry</CardTitle>
+              <Button variant="ghost" size="icon" onClick={resetEnquiryForm}>
+                <X className="size-4" />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleEnquirySubmit} className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Guest name"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={enquiryName}
+                      onChange={(e) => setEnquiryName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Phone *</label>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="e.g. 9876543210"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={enquiryPhone}
+                      onChange={(e) => setEnquiryPhone(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Unit (optional)</label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={enquiryRoomId}
+                      onChange={(e) => setEnquiryRoomId(e.target.value)}
+                    >
+                      <option value="">Any / General</option>
+                      {rooms.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.unit_code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Date *</label>
+                    <input
+                      type="date"
+                      required
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={enquiryDate}
+                      onChange={(e) => setEnquiryDate(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Notes (optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Wants 2BHK for weekend, budget ₹5000"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={enquiryNotes}
+                    onChange={(e) => setEnquiryNotes(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button type="button" variant="outline" onClick={resetEnquiryForm}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={createEnquiry.isPending}>
+                    {createEnquiry.isPending ? 'Saving...' : 'Save Enquiry'}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

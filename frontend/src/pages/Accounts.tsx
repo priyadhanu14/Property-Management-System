@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { api } from '@/api/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -147,11 +148,11 @@ export function Accounts() {
 
   const roomsQuery = useQuery({
     queryKey: ['rooms-list'],
-    queryFn: () => api.get<{ rooms: RoomOption[] }>('/rooms'),
+    queryFn: () => api.get<RoomOption[]>('/rooms'),
     staleTime: 5 * 60 * 1000,
   })
 
-  const rooms = roomsQuery.data?.rooms ?? []
+  const rooms = roomsQuery.data ?? []
 
   // ---- Mutations ----
 
@@ -167,13 +168,16 @@ export function Accounts() {
       queryClient.invalidateQueries({ queryKey: ['monthly-summary', month] })
       resetForm()
     },
+    onError: (err: Error) => toast.error(err.message),
   })
 
   const deleteExpense = useMutation({
     mutationFn: (id: number) => api.delete<void>(`/accounts/expenses/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['monthly-summary', month] })
+      toast.success('Expense deleted')
     },
+    onError: (err: Error) => toast.error(err.message),
   })
 
   function resetForm() {
@@ -396,8 +400,8 @@ export function Accounts() {
 
       {/* ---- Add expense modal/overlay ---- */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <Card className="w-full max-w-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={resetForm}>
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Add Expense</CardTitle>
               <Button
