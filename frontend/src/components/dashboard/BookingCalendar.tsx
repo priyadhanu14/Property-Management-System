@@ -71,7 +71,22 @@ interface GroupedBooking {
   end: Date
 }
 
-export function BookingCalendar() {
+export interface EnquiryOut {
+  id: number
+  room_id: number | null
+  unit_code: string | null
+  guest_name: string
+  phone: string
+  enquiry_date: string
+  notes: string | null
+}
+
+interface BookingCalendarProps {
+  onAddEnquiry?: (date: string) => void
+  enquiryRefetchKey?: number
+}
+
+export function BookingCalendar({ onAddEnquiry, enquiryRefetchKey }: BookingCalendarProps) {
   const [viewDate, setViewDate] = useState(() => {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() }
@@ -113,6 +128,13 @@ export function BookingCalendar() {
     staleTime: 30_000,
   })
 
+  const { data: enquiries } = useQuery({
+    queryKey: ['calendar-enquiries', fromDate, toDate, enquiryRefetchKey],
+    queryFn: () =>
+      api.get<EnquiryOut[]>(`/enquiries?from_date=${fromDate}&to_date=${toDate}`),
+    staleTime: 30_000,
+  })
+
   // Group by group_id and map to calendar-friendly objects
   const grouped = useMemo(() => {
     if (!bookings) return []
@@ -146,6 +168,11 @@ export function BookingCalendar() {
     return grouped.filter((g) => g.start < dayEnd && g.end > dayStart)
   }
 
+  function enquiriesForDay(day: Date): EnquiryOut[] {
+    const dateStr = toDateStr(day)
+    return (enquiries ?? []).filter((e) => e.enquiry_date === dateStr)
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -175,13 +202,17 @@ export function BookingCalendar() {
       <div className="grid grid-cols-7 flex-1 border-t border-l border-border">
         {days.map((day, i) => {
           const dayBookings = bookingsForDay(day.date)
+          const dayEnquiries = enquiriesForDay(day.date)
+          const dateStr = toDateStr(day.date)
           return (
             <div
               key={i}
               className={cn(
                 'border-r border-b border-border min-h-[70px] p-1 text-xs overflow-hidden',
-                !day.isCurrentMonth && 'bg-muted/30 text-muted-foreground'
+                !day.isCurrentMonth && 'bg-muted/30 text-muted-foreground',
+                onAddEnquiry && 'cursor-pointer hover:bg-muted/20 transition-colors'
               )}
+              onClick={() => onAddEnquiry?.(dateStr)}
             >
               <div
                 className={cn(
@@ -192,7 +223,7 @@ export function BookingCalendar() {
                 {day.date.getDate()}
               </div>
               <div className="space-y-0.5">
-                {dayBookings.slice(0, 3).map((g) => (
+                {dayBookings.slice(0, 2).map((g) => (
                   <div
                     key={g.groupId}
                     className={cn(
@@ -200,16 +231,29 @@ export function BookingCalendar() {
                       STATUS_PILL[g.status] ?? STATUS_PILL.reserved
                     )}
                     title={`${g.guestName} – ${g.units.join(', ')}`}
+                    onClick={(e) => e.stopPropagation()}
                   >
                     {g.guestName.split(' ')[0]}
                     {g.units.length > 1 ? ` (${g.units.length})` : ` · ${g.units[0]}`}
                   </div>
                 ))}
-                {dayBookings.length > 3 && (
-                  <div className="text-[10px] text-muted-foreground pl-1">
-                    +{dayBookings.length - 3} more
+                {dayEnquiries.slice(0, 2).map((e) => (
+                  <div
+                    key={`enq-${e.id}`}
+                    className="truncate rounded px-1 py-px text-[10px] leading-tight font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                    title={`Enquiry: ${e.guest_name} · ${e.phone}${e.unit_code ? ` · ${e.unit_code}` : ''}${e.notes ? ` · ${e.notes}` : ''}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    📞 {e.guest_name.split(' ')[0]}
+                    {e.unit_code ? ` · ${e.unit_code}` : ''}
                   </div>
-                )}
+                ))}
+                {(() => {
+                  const overflow = (dayBookings.length - 2) + (dayEnquiries.length - 2)
+                  return overflow > 0 ? (
+                    <div className="text-[10px] text-muted-foreground pl-1">+{overflow} more</div>
+                  ) : null
+                })()}
               </div>
             </div>
           )

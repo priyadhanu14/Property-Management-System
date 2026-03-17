@@ -138,8 +138,8 @@ function RecordPaymentModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <Card className="w-full max-w-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">Record Payment</CardTitle>
           <Button variant="ghost" size="icon" onClick={onClose}>
@@ -270,8 +270,8 @@ function CheckoutConfirmModal({
   isPending: boolean
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <Card className="w-full max-w-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <Card className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
         <CardHeader>
           <CardTitle className="text-lg">Confirm Check-out</CardTitle>
         </CardHeader>
@@ -337,8 +337,8 @@ function CancelConfirmModal({
   isPending: boolean
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <Card className="w-full max-w-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <Card className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
         <CardHeader>
           <CardTitle className="text-lg">Cancel Booking</CardTitle>
         </CardHeader>
@@ -768,8 +768,8 @@ export function Bookings() {
 
       {/* Create booking modal */}
       {showCreateForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <Card className="w-full max-w-lg max-h-[90vh] overflow-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={resetForm}>
+          <Card className="w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">New Booking</CardTitle>
               <Button variant="ghost" size="icon" onClick={resetForm}>

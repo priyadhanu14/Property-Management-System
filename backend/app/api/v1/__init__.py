@@ -8,6 +8,7 @@ from app.api.v1 import (
     accounts,
     rate_plans,
     audit_logs,
+    enquiries,
 )
 
 router = APIRouter()
@@ -19,3 +20,4 @@ router.include_router(payments.router, prefix="/payments", tags=["payments"])
 router.include_router(accounts.router, prefix="/accounts", tags=["accounts"])
 router.include_router(rate_plans.router, prefix="/rate-plans", tags=["rate-plans"])
 router.include_router(audit_logs.router, prefix="/audit-logs", tags=["audit-logs"])
+router.include_router(enquiries.router, prefix="/enquiries", tags=["enquiries"])

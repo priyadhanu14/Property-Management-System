@@ -25,6 +25,7 @@ EXPENSE_CATEGORIES = [
     "cleaning",
     "maintenance",
     "water",
+    "staff_salary",
     "other",
 ]
 
