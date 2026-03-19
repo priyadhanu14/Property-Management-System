@@ -225,7 +225,7 @@ export function BookingCalendar({ onAddEnquiry, enquiryRefetchKey }: BookingCale
               </div>
               <div className="space-y-0.5">
                 {(() => {
-                  const bookedRooms = dayBookings.reduce((sum, g) => sum + g.units.length, 0)
+                  const bookedRooms = new Set(dayBookings.flatMap((g) => g.units)).size
                   const total = totalRooms
                   if (bookedRooms === 0) return null
                   const isFull = bookedRooms >= total
