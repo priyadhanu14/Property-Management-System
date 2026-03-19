@@ -484,6 +484,10 @@ export function Bookings() {
     mutationFn: (id: number) => api.delete(`/bookings/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-today'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['monthly-summary'] })
       setCancelBooking(null)
       toast.success('Booking cancelled')
     },
