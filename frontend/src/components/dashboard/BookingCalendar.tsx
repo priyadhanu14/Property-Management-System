@@ -8,12 +8,6 @@ import type { BookingResponse } from '@/types/rooms'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-const STATUS_PILL: Record<string, string> = {
-  reserved: 'bg-blue-500/80 text-white',
-  occupied: 'bg-amber-500/80 text-white',
-  checked_out: 'bg-emerald-500/60 text-white',
-  cancelled: 'bg-muted text-muted-foreground line-through',
-}
 
 interface CalendarDay {
   date: Date
@@ -135,6 +129,13 @@ export function BookingCalendar({ onAddEnquiry, enquiryRefetchKey }: BookingCale
     staleTime: 30_000,
   })
 
+  const { data: rooms } = useQuery({
+    queryKey: ['rooms'],
+    queryFn: () => api.get<{ id: number; is_active: boolean }[]>('/rooms'),
+    staleTime: 5 * 60_000,
+  })
+  const totalRooms = (rooms ?? []).filter((r) => r.is_active).length || 1
+
   // Group by group_id and map to calendar-friendly objects
   const grouped = useMemo(() => {
     if (!bookings) return []
@@ -223,20 +224,29 @@ export function BookingCalendar({ onAddEnquiry, enquiryRefetchKey }: BookingCale
                 {day.date.getDate()}
               </div>
               <div className="space-y-0.5">
-                {dayBookings.slice(0, 2).map((g) => (
-                  <div
-                    key={g.groupId}
-                    className={cn(
-                      'truncate rounded px-1 py-px text-[10px] leading-tight font-medium',
-                      STATUS_PILL[g.status] ?? STATUS_PILL.reserved
-                    )}
-                    title={`${g.guestName} – ${g.units.join(', ')}`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {g.guestName.split(' ')[0]}
-                    {g.units.length > 1 ? ` (${g.units.length})` : ` · ${g.units[0]}`}
-                  </div>
-                ))}
+                {(() => {
+                  const bookedRooms = dayBookings.reduce((sum, g) => sum + g.units.length, 0)
+                  const total = totalRooms
+                  if (bookedRooms === 0) return null
+                  const isFull = bookedRooms >= total
+                  const isHalf = bookedRooms >= total / 2
+                  return (
+                    <div
+                      className={cn(
+                        'rounded px-1 py-px text-[10px] leading-tight font-semibold text-center',
+                        isFull
+                          ? 'bg-red-500/80 text-white'
+                          : isHalf
+                          ? 'bg-amber-500/80 text-white'
+                          : 'bg-emerald-500/70 text-white'
+                      )}
+                      title={dayBookings.map(g => `${g.guestName} · ${g.units.join(', ')}`).join('\n')}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {bookedRooms}/{total}
+                    </div>
+                  )
+                })()}
                 {dayEnquiries.slice(0, 2).map((e) => (
                   <div
                     key={`enq-${e.id}`}
@@ -248,12 +258,9 @@ export function BookingCalendar({ onAddEnquiry, enquiryRefetchKey }: BookingCale
                     {e.unit_code ? ` · ${e.unit_code}` : ''}
                   </div>
                 ))}
-                {(() => {
-                  const overflow = (dayBookings.length - 2) + (dayEnquiries.length - 2)
-                  return overflow > 0 ? (
-                    <div className="text-[10px] text-muted-foreground pl-1">+{overflow} more</div>
-                  ) : null
-                })()}
+                {dayEnquiries.length > 2 && (
+                  <div className="text-[10px] text-muted-foreground pl-1">+{dayEnquiries.length - 2} more</div>
+                )}
               </div>
             </div>
           )
