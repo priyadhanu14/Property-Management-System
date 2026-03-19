@@ -4,6 +4,7 @@ from datetime import date as date_type, datetime, time as time_type, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -178,21 +179,34 @@ async def create_booking(
             raise HTTPException(400, "start_datetime must be before end_datetime")
 
         # Check for overlapping bookings on the same room (back-to-back is allowed)
-        overlap_stmt = select(Booking).where(
-            Booking.room_id == item.room_id,
-            Booking.status != "cancelled",
-            Booking.start_datetime < item.end_datetime,
-            Booking.end_datetime > item.start_datetime,
+        # Normalise to UTC-aware for reliable comparison
+        def to_utc(dt: datetime) -> datetime:
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+
+        start_utc = to_utc(item.start_datetime)
+        end_utc = to_utc(item.end_datetime)
+
+        overlap_stmt = (
+            select(Booking)
+            .where(
+                Booking.room_id == item.room_id,
+                Booking.status != "cancelled",
+            )
+            .options(selectinload(Booking.room))
         )
         overlap_result = await session.execute(overlap_stmt)
-        conflict = overlap_result.scalar_one_or_none()
-        if conflict:
-            fmt = lambda dt: dt.strftime("%d %b %I:%M %p")
-            raise HTTPException(
-                400,
-                f"Room '{room.unit_code}' is already booked from "
-                f"{fmt(conflict.start_datetime)} to {fmt(conflict.end_datetime)}",
-            )
+        for existing in overlap_result.scalars().all():
+            ex_start = to_utc(existing.start_datetime)
+            ex_end = to_utc(existing.end_datetime)
+            if ex_start < end_utc and ex_end > start_utc:
+                fmt = lambda dt: dt.strftime("%d %b %I:%M %p")
+                raise HTTPException(
+                    400,
+                    f"Room '{room.unit_code}' is already booked from "
+                    f"{fmt(ex_start)} to {fmt(ex_end)}",
+                )
 
     # Create group
     group = BookingGroup(
@@ -219,7 +233,12 @@ async def create_booking(
         session.add(booking)
         created_bookings.append(booking)
 
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError as e:
+        if "no_overlap" in str(e.orig).lower() or "exclusion" in str(e.orig).lower():
+            raise HTTPException(400, "One or more rooms are already booked for the selected time period.")
+        raise
 
     # Refresh with relationships
     group_rate = sum(
