@@ -192,7 +192,7 @@ async def create_booking(
             Booking.start_datetime < end_utc,
             Booking.end_datetime > start_utc,
         )
-        conflict = (await session.execute(overlap_stmt)).scalar_one_or_none()
+        conflict = (await session.execute(overlap_stmt)).scalars().first()
         if conflict:
             fmt = lambda dt: to_utc(dt).strftime("%d %b %I:%M %p")
             raise HTTPException(
