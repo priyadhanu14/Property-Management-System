@@ -1,5 +1,5 @@
 """Bookings endpoints: CRUD, check-in, check-out, list/filter."""
-from datetime import datetime, timezone
+from datetime import date as date_type, datetime, time as time_type, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -167,7 +167,7 @@ async def create_booking(
     session: AsyncSession = Depends(get_session),
 ):
     """Create a booking group with one or more unit bookings."""
-    # Validate all rooms exist
+    # Validate all rooms exist and check for overlapping bookings
     for item in body.bookings:
         room = await session.get(Room, item.room_id)
         if not room:
@@ -176,6 +176,23 @@ async def create_booking(
             raise HTTPException(400, f"Room '{room.unit_code}' is inactive")
         if item.start_datetime >= item.end_datetime:
             raise HTTPException(400, "start_datetime must be before end_datetime")
+
+        # Check for overlapping bookings on the same room (back-to-back is allowed)
+        overlap_stmt = select(Booking).where(
+            Booking.room_id == item.room_id,
+            Booking.status != "cancelled",
+            Booking.start_datetime < item.end_datetime,
+            Booking.end_datetime > item.start_datetime,
+        )
+        overlap_result = await session.execute(overlap_stmt)
+        conflict = overlap_result.scalar_one_or_none()
+        if conflict:
+            fmt = lambda dt: dt.strftime("%d %b %I:%M %p")
+            raise HTTPException(
+                400,
+                f"Room '{room.unit_code}' is already booked from "
+                f"{fmt(conflict.start_datetime)} to {fmt(conflict.end_datetime)}",
+            )
 
     # Create group
     group = BookingGroup(
@@ -255,7 +272,6 @@ async def list_bookings(
         )
     if from_date:
         try:
-            from datetime import date as date_type, time as time_type
             fd = date_type.fromisoformat(from_date)
             stmt = stmt.where(
                 Booking.end_datetime >= datetime.combine(fd, time_type.min, tzinfo=timezone.utc)
@@ -264,7 +280,6 @@ async def list_bookings(
             raise HTTPException(400, "from_date must be YYYY-MM-DD")
     if to_date:
         try:
-            from datetime import date as date_type, time as time_type
             td = date_type.fromisoformat(to_date)
             stmt = stmt.where(
                 Booking.start_datetime <= datetime.combine(td, time_type.max, tzinfo=timezone.utc)
