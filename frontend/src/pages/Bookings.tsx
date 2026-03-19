@@ -832,8 +832,8 @@ export function Bookings() {
                     value={formSlot}
                     onChange={(e) => handleDateOrSlotChange(formCheckInDate, formCheckOutDate, e.target.value as SlotType)}
                   >
-                    <option value="morning">Morning (6 AM check-in / check-out)</option>
-                    <option value="evening">Evening (4 PM check-in / check-out)</option>
+                    <option value="morning">Morning (6 AM)</option>
+                    <option value="evening">Evening (4 PM)</option>
                   </select>
                 </div>
                 {formStart && formEnd && (
