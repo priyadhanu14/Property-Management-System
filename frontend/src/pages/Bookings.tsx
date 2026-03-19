@@ -626,7 +626,7 @@ export function Bookings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CalendarDays className="size-5" />
-            Bookings ({groupedBookings.length} group{groupedBookings.length !== 1 ? 's' : ''}, {bookings.length} unit{bookings.length !== 1 ? 's' : ''})
+            Bookings
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
