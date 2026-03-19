@@ -174,6 +174,7 @@ class PropertyExpense(BaseModel):
     category: str
     amount: float
     description: str | None
+    created_at: datetime | None
 
 
 class MonthlyTotals(BaseModel):
@@ -219,7 +220,7 @@ async def get_monthly_summary(
             func.coalesce(func.sum(Payment.amount), 0).label("revenue"),
         )
         .select_from(Payment)
-        .join(Booking, Payment.booking_id == Booking.id, isouter=True)
+        .join(Booking, Payment.booking_id == Booking.id)
         .where(
             extract("year", Payment.paid_at) == year_int,
             extract("month", Payment.paid_at) == mon_int,
@@ -298,6 +299,7 @@ async def get_monthly_summary(
                 category=e.category,
                 amount=float(e.amount),
                 description=e.description,
+                created_at=e.created_at,
             )
             for e in property_expenses
         ],

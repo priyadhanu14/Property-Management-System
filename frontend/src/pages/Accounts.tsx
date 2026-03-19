@@ -42,6 +42,7 @@ interface PropertyExpense {
   category: string
   amount: number
   description: string | null
+  created_at: string | null
 }
 
 interface MonthlyTotals {
@@ -378,43 +379,54 @@ export function Accounts() {
         </CardContent>
       </Card>
 
-      {/* ---- Property-wide expenses ---- */}
+      {/* ---- Expenses ---- */}
       {summary && summary.property_wide_expenses.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Property-wide Expenses</CardTitle>
+            <CardTitle className="text-base">Expenses</CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-2">
-              {summary.property_wide_expenses.map((e) => (
-                <li
-                  key={e.id}
-                  className="flex items-center justify-between rounded-md border px-3 py-2"
-                >
-                  <div>
-                    <span className="font-medium">{CATEGORY_LABELS[e.category] ?? e.category}</span>
-                    {e.description && (
-                      <span className="ml-2 text-muted-foreground">
-                        — {e.description}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-red-500">
-                      {formatCurrency(e.amount)}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      onClick={() => deleteExpense.mutate(e.id)}
-                    >
-                      <Trash2 className="size-3.5 text-destructive" />
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-2 pr-4 font-medium">Category</th>
+                    <th className="py-2 pr-4 font-medium">Description</th>
+                    <th className="py-2 pr-4 font-medium">Date Paid</th>
+                    <th className="py-2 pr-4 font-medium text-right">Amount</th>
+                    <th className="py-2 font-medium" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.property_wide_expenses.map((e) => (
+                    <tr key={e.id} className="border-b last:border-0">
+                      <td className="py-2 pr-4 font-medium">
+                        {CATEGORY_LABELS[e.category] ?? e.category}
+                      </td>
+                      <td className="py-2 pr-4 text-muted-foreground">
+                        {e.description ?? '—'}
+                      </td>
+                      <td className="py-2 pr-4 text-muted-foreground">
+                        {e.created_at ? formatDate(e.created_at) : '—'}
+                      </td>
+                      <td className="py-2 pr-4 text-right font-semibold text-red-500">
+                        {formatCurrency(e.amount)}
+                      </td>
+                      <td className="py-2 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          onClick={() => deleteExpense.mutate(e.id)}
+                        >
+                          <Trash2 className="size-3.5 text-destructive" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       )}
