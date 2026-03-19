@@ -77,10 +77,11 @@ export interface EnquiryOut {
 
 interface BookingCalendarProps {
   onAddEnquiry?: (date: string) => void
+  onDeleteEnquiry?: (id: number) => void
   enquiryRefetchKey?: number
 }
 
-export function BookingCalendar({ onAddEnquiry, enquiryRefetchKey }: BookingCalendarProps) {
+export function BookingCalendar({ onAddEnquiry, onDeleteEnquiry, enquiryRefetchKey }: BookingCalendarProps) {
   const [viewDate, setViewDate] = useState(() => {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() }
@@ -247,15 +248,23 @@ export function BookingCalendar({ onAddEnquiry, enquiryRefetchKey }: BookingCale
                     </div>
                   )
                 })()}
-                {dayEnquiries.slice(0, 2).map((e) => (
+                {dayEnquiries.slice(0, 2).map((enq) => (
                   <div
-                    key={`enq-${e.id}`}
-                    className="truncate rounded px-1 py-px text-[10px] leading-tight font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30"
-                    title={`Enquiry: ${e.guest_name} · ${e.phone}${e.unit_code ? ` · ${e.unit_code}` : ''}${e.notes ? ` · ${e.notes}` : ''}`}
+                    key={`enq-${enq.id}`}
+                    className="group flex items-center justify-between rounded px-1 py-px text-[10px] leading-tight font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                    title={`Enquiry: ${enq.guest_name} · ${enq.phone}${enq.unit_code ? ` · ${enq.unit_code}` : ''}${enq.notes ? ` · ${enq.notes}` : ''}`}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    📞 {e.guest_name.split(' ')[0]}
-                    {e.unit_code ? ` · ${e.unit_code}` : ''}
+                    <span className="truncate">📞 {enq.guest_name.split(' ')[0]}{enq.unit_code ? ` · ${enq.unit_code}` : ''}</span>
+                    {onDeleteEnquiry && (
+                      <button
+                        className="ml-0.5 shrink-0 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity"
+                        onClick={(e) => { e.stopPropagation(); onDeleteEnquiry(enq.id) }}
+                        title="Delete enquiry"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 ))}
                 {dayEnquiries.length > 2 && (

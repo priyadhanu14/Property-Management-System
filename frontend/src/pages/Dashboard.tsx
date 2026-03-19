@@ -66,6 +66,16 @@ export function Dashboard() {
   })
   const rooms = roomsQuery.data ?? []
 
+  const deleteEnquiry = useMutation({
+    mutationFn: (id: number) => api.delete(`/enquiries/${id}`),
+    onSuccess: () => {
+      toast.success('Enquiry deleted')
+      setEnquiryRefetchKey((k) => k + 1)
+      queryClient.invalidateQueries({ queryKey: ['calendar-enquiries'] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
   const createEnquiry = useMutation({
     mutationFn: (body: {
       room_id: number | null
@@ -126,6 +136,7 @@ export function Dashboard() {
           <CardContent className="p-3 sm:p-4 h-full">
             <BookingCalendar
               onAddEnquiry={(date) => openEnquiryForm(date)}
+              onDeleteEnquiry={(id) => deleteEnquiry.mutate(id)}
               enquiryRefetchKey={enquiryRefetchKey}
             />
           </CardContent>
