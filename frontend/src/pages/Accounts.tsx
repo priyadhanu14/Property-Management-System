@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api } from '@/api/client'
@@ -72,6 +72,17 @@ interface ExpenseOut {
 interface RoomOption {
   id: number
   unit_code: string
+}
+
+interface PaymentLog {
+  id: number
+  booking_group_id: number
+  guest_name: string
+  amount: number
+  payment_type: string
+  payment_mode: string
+  paid_at: string
+  note: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -177,27 +188,52 @@ export function Accounts() {
       api.get<BookingResponse[]>(`/bookings?from_date=${fromDate}&to_date=${toDate}&limit=500`),
   })
 
+  const paymentsQuery = useQuery({
+    queryKey: ['accounts-payments', month],
+    queryFn: () =>
+      api.get<PaymentLog[]>(`/payments?from_date=${fromDate}&to_date=${toDate}&limit=500`),
+  })
+
   const customerRows = useMemo(() => {
-    const map = new Map<number, { guestName: string; rooms: string[]; startDate: string; totalPaid: number; balance: number }>()
+    // Build group info from non-cancelled bookings this month
+    const groupMap = new Map<number, { guestName: string; rooms: string[]; startDate: string }>()
     for (const b of bookingsQuery.data ?? []) {
       if (b.status === 'cancelled') continue
-      const row = map.get(b.group_id)
+      const row = groupMap.get(b.group_id)
       if (row) {
         row.rooms.push(b.unit_code)
       } else {
-        map.set(b.group_id, {
+        groupMap.set(b.group_id, {
           guestName: b.guest_name,
           rooms: [b.unit_code],
           startDate: b.start_datetime,
-          totalPaid: b.total_paid,
-          balance: b.balance,
         })
       }
     }
-    return Array.from(map.values()).sort(
-      (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
-    )
-  }, [bookingsQuery.data])
+    // Group payments by booking_group_id
+    const pmtMap = new Map<number, PaymentLog[]>()
+    for (const p of paymentsQuery.data ?? []) {
+      const arr = pmtMap.get(p.booking_group_id)
+      if (arr) arr.push(p)
+      else pmtMap.set(p.booking_group_id, [p])
+      // Include payment groups not in this month's bookings
+      if (!groupMap.has(p.booking_group_id)) {
+        groupMap.set(p.booking_group_id, { guestName: p.guest_name, rooms: [], startDate: '' })
+      }
+    }
+    return Array.from(groupMap.entries())
+      .map(([groupId, info]) => {
+        const pmts = (pmtMap.get(groupId) ?? []).sort(
+          (a, b) => new Date(a.paid_at).getTime() - new Date(b.paid_at).getTime()
+        )
+        return { ...info, payments: pmts, totalPaid: pmts.reduce((s, p) => s + p.amount, 0) }
+      })
+      .sort((a, b) =>
+        a.startDate && b.startDate
+          ? new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+          : 0
+      )
+  }, [bookingsQuery.data, paymentsQuery.data])
 
   // ---- Mutations ----
 
@@ -334,11 +370,11 @@ export function Accounts() {
           </Button>
         </CardHeader>
         <CardContent>
-          {bookingsQuery.isLoading && (
+          {(bookingsQuery.isLoading || paymentsQuery.isLoading) && (
             <p className="text-muted-foreground">Loading...</p>
           )}
-          {!bookingsQuery.isLoading && customerRows.length === 0 && (
-            <p className="text-muted-foreground">No bookings this month.</p>
+          {!bookingsQuery.isLoading && !paymentsQuery.isLoading && customerRows.length === 0 && (
+            <p className="text-muted-foreground">No bookings or payments this month.</p>
           )}
           {customerRows.length > 0 && (
             <div className="overflow-x-auto">
@@ -346,34 +382,46 @@ export function Accounts() {
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="py-3 pr-4 font-medium">Guest Name</th>
-                    <th className="py-3 pr-4 font-medium text-center">Rooms</th>
-                    <th className="py-3 pr-4 font-medium">Check-in Date</th>
-                    <th className="py-3 pr-4 font-medium text-right">Amount Paid</th>
-                    <th className="py-3 font-medium text-right">Balance</th>
+                    <th className="py-3 pr-4 font-medium">Rooms</th>
+                    <th className="py-3 pr-4 font-medium">Check-in</th>
+                    <th className="py-3 pr-4 font-medium">Date Paid</th>
+                    <th className="py-3 font-medium text-right">Amount</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {customerRows.map((row, i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className="py-3 pr-4 font-medium">{row.guestName}</td>
-                      <td className="py-3 pr-4 text-center text-muted-foreground">
-                        <span title={row.rooms.join(', ')}>{row.rooms.length}</span>
-                      </td>
-                      <td className="py-3 pr-4 text-muted-foreground">
-                        {formatDate(row.startDate)}
-                      </td>
-                      <td className="py-3 pr-4 text-right text-emerald-500 font-medium">
-                        {formatCurrency(row.totalPaid)}
-                      </td>
-                      <td className={cn(
-                        'py-3 text-right font-medium',
-                        row.balance > 0 ? 'text-red-500' : 'text-muted-foreground'
-                      )}>
-                        {row.balance > 0 ? formatCurrency(row.balance) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
+                {customerRows.map((row, i) => (
+                  <Fragment key={i}>
+                    <tbody>
+                      {row.payments.length === 0 ? (
+                        <tr className="border-b">
+                          <td className="py-3 pr-4 font-medium">{row.guestName}</td>
+                          <td className="py-3 pr-4 text-muted-foreground">{row.rooms.join(', ') || '—'}</td>
+                          <td className="py-3 pr-4 text-muted-foreground">{row.startDate ? formatDate(row.startDate) : '—'}</td>
+                          <td className="py-3 pr-4 text-muted-foreground">No payment</td>
+                          <td className="py-3 text-right text-muted-foreground">—</td>
+                        </tr>
+                      ) : (
+                        <>
+                          {row.payments.map((pmt, j) => (
+                            <tr key={pmt.id} className="border-b">
+                              <td className="py-2 pr-4 font-medium">{j === 0 ? row.guestName : ''}</td>
+                              <td className="py-2 pr-4 text-muted-foreground">{j === 0 ? (row.rooms.join(', ') || '—') : ''}</td>
+                              <td className="py-2 pr-4 text-muted-foreground">{j === 0 && row.startDate ? formatDate(row.startDate) : ''}</td>
+                              <td className="py-2 pr-4 text-muted-foreground">{formatDate(pmt.paid_at)}</td>
+                              <td className="py-2 text-right text-emerald-500 font-medium">{formatCurrency(pmt.amount)}</td>
+                            </tr>
+                          ))}
+                          {row.payments.length > 1 && (
+                            <tr className="border-b bg-muted/30">
+                              <td colSpan={3} />
+                              <td className="py-2 pr-4 text-xs text-right font-medium text-muted-foreground">Total</td>
+                              <td className="py-2 text-right font-bold">{formatCurrency(row.totalPaid)}</td>
+                            </tr>
+                          )}
+                        </>
+                      )}
+                    </tbody>
+                  </Fragment>
+                ))}
               </table>
             </div>
           )}

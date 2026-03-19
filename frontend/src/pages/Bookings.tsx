@@ -956,6 +956,8 @@ export function Bookings() {
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ['bookings'] })
             queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+            queryClient.invalidateQueries({ queryKey: ['accounts-payments'] })
+            queryClient.invalidateQueries({ queryKey: ['monthly-summary'] })
           }}
         />
       )}

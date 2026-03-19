@@ -214,7 +214,7 @@ async def get_monthly_summary(
     year_int = int(year)
     mon_int = int(mon)
 
-    # ---- Revenue per room (payments within the month) ----
+    # ---- Revenue per room (payments within the month, excluding cancelled bookings) ----
     revenue_stmt = (
         select(
             Booking.room_id,
@@ -225,6 +225,7 @@ async def get_monthly_summary(
         .where(
             extract("year", Payment.paid_at) == year_int,
             extract("month", Payment.paid_at) == mon_int,
+            Booking.status != "cancelled",
         )
         .group_by(Booking.room_id)
     )
