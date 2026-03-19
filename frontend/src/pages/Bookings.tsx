@@ -387,6 +387,8 @@ export function Bookings() {
 
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
   const [guestSearch, setGuestSearch] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
   const [showCreateForm, setShowCreateForm] = useState(
     searchParams.get('action') === 'new'
   )
@@ -413,11 +415,13 @@ export function Bookings() {
 
   // ---- Queries ----
   const bookingsQuery = useQuery({
-    queryKey: ['bookings', statusFilter, guestSearch],
+    queryKey: ['bookings', statusFilter, guestSearch, fromDate, toDate],
     queryFn: () => {
       const params = new URLSearchParams()
       if (statusFilter) params.set('status', statusFilter)
       if (guestSearch) params.set('guest', guestSearch)
+      if (fromDate) params.set('from_date', fromDate)
+      if (toDate) params.set('to_date', toDate)
       params.set('limit', '200')
       return api.get<BookingResponse[]>(`/bookings?${params.toString()}`)
     },
@@ -585,6 +589,29 @@ export function Bookings() {
           <option value="checked_out">Checked out</option>
           <option value="cancelled">Cancelled</option>
         </select>
+        <input
+          type="date"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+          value={fromDate}
+          onChange={(e) => setFromDate(e.target.value)}
+          onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
+          title="From date"
+          placeholder="From"
+        />
+        <input
+          type="date"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+          value={toDate}
+          onChange={(e) => setToDate(e.target.value)}
+          onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
+          title="To date"
+          placeholder="To"
+        />
+        {(fromDate || toDate) && (
+          <Button variant="ghost" size="sm" className="h-9 px-2 text-muted-foreground" onClick={() => { setFromDate(''); setToDate('') }}>
+            <X className="size-4" />
+          </Button>
+        )}
       </div>
 
       {bookingsQuery.isError && (
