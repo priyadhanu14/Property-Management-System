@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api } from '@/api/client'
+import type { BookingResponse } from '@/types/rooms'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -122,6 +123,14 @@ function monthLabel(ym: string) {
   })
 }
 
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -153,6 +162,40 @@ export function Accounts() {
   })
 
   const rooms = roomsQuery.data ?? []
+
+  const fromDate = `${month}-01`
+  const toDate = (() => {
+    const [y, m] = month.split('-').map(Number)
+    return `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`
+  })()
+
+  const bookingsQuery = useQuery({
+    queryKey: ['accounts-bookings', month],
+    queryFn: () =>
+      api.get<BookingResponse[]>(`/bookings?from_date=${fromDate}&to_date=${toDate}&limit=500`),
+  })
+
+  const customerRows = useMemo(() => {
+    const map = new Map<number, { guestName: string; rooms: string[]; startDate: string; totalPaid: number; balance: number }>()
+    for (const b of bookingsQuery.data ?? []) {
+      if (b.status === 'cancelled') continue
+      const row = map.get(b.group_id)
+      if (row) {
+        row.rooms.push(b.unit_code)
+      } else {
+        map.set(b.group_id, {
+          guestName: b.guest_name,
+          rooms: [b.unit_code],
+          startDate: b.start_datetime,
+          totalPaid: b.total_paid,
+          balance: b.balance,
+        })
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+    )
+  }, [bookingsQuery.data])
 
   // ---- Mutations ----
 
@@ -203,7 +246,6 @@ export function Accounts() {
   }
 
   const summary = summaryQuery.data
-  const isLoading = summaryQuery.isLoading
 
   return (
     <div className="space-y-6">
@@ -277,12 +319,12 @@ export function Accounts() {
         </div>
       )}
 
-      {/* ---- Per-unit breakdown ---- */}
+      {/* ---- Customer-wise revenue ---- */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <IndianRupee className="size-5" />
-            Revenue &amp; Expenses per Unit
+            Revenue by Customer
           </CardTitle>
           <Button size="sm" onClick={() => setShowForm(true)}>
             <Plus className="size-4" />
@@ -290,63 +332,42 @@ export function Accounts() {
           </Button>
         </CardHeader>
         <CardContent>
-          {isLoading && (
+          {bookingsQuery.isLoading && (
             <p className="text-muted-foreground">Loading...</p>
           )}
-          {summary && summary.units.length === 0 && (
-            <p className="text-muted-foreground">
-              No rooms found. Add rooms first.
-            </p>
+          {!bookingsQuery.isLoading && customerRows.length === 0 && (
+            <p className="text-muted-foreground">No bookings this month.</p>
           )}
-          {summary && summary.units.length > 0 && (
+          {customerRows.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-3 pr-4 font-medium">Unit</th>
-                    <th className="py-3 pr-4 font-medium">Type</th>
-                    <th className="py-3 pr-4 font-medium text-right">Revenue</th>
-                    <th className="py-3 pr-4 font-medium">Expenses</th>
-                    <th className="py-3 pr-4 font-medium text-right">Total Exp.</th>
-                    <th className="py-3 font-medium text-right">Net</th>
+                    <th className="py-3 pr-4 font-medium">Guest Name</th>
+                    <th className="py-3 pr-4 font-medium text-center">Rooms</th>
+                    <th className="py-3 pr-4 font-medium">Check-in Date</th>
+                    <th className="py-3 pr-4 font-medium text-right">Amount Paid</th>
+                    <th className="py-3 font-medium text-right">Balance</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {summary.units.map((u) => (
-                    <tr key={u.room_id} className="border-b last:border-0">
-                      <td className="py-3 pr-4 font-medium">{u.unit_code}</td>
+                  {customerRows.map((row, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="py-3 pr-4 font-medium">{row.guestName}</td>
+                      <td className="py-3 pr-4 text-center text-muted-foreground">
+                        <span title={row.rooms.join(', ')}>{row.rooms.length}</span>
+                      </td>
                       <td className="py-3 pr-4 text-muted-foreground">
-                        {u.room_type}
+                        {formatDate(row.startDate)}
                       </td>
-                      <td className="py-3 pr-4 text-right text-emerald-500">
-                        {formatCurrency(u.revenue)}
+                      <td className="py-3 pr-4 text-right text-emerald-500 font-medium">
+                        {formatCurrency(row.totalPaid)}
                       </td>
-                      <td className="py-3 pr-4">
-                        {u.expenses.length === 0 ? (
-                          <span className="text-muted-foreground">—</span>
-                        ) : (
-                          <ul className="space-y-0.5">
-                            {u.expenses.map((e, i) => (
-                              <li key={i} className="flex justify-between gap-4">
-                                <span>{CATEGORY_LABELS[e.category] ?? e.category}</span>
-                                <span className="text-red-500">
-                                  {formatCurrency(e.amount)}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </td>
-                      <td className="py-3 pr-4 text-right text-red-500">
-                        {formatCurrency(u.total_expenses)}
-                      </td>
-                      <td
-                        className={cn(
-                          'py-3 text-right font-semibold',
-                          u.net >= 0 ? 'text-emerald-500' : 'text-red-500'
-                        )}
-                      >
-                        {formatCurrency(u.net)}
+                      <td className={cn(
+                        'py-3 text-right font-medium',
+                        row.balance > 0 ? 'text-red-500' : 'text-muted-foreground'
+                      )}>
+                        {row.balance > 0 ? formatCurrency(row.balance) : '—'}
                       </td>
                     </tr>
                   ))}
