@@ -19,36 +19,21 @@ import {
 import { cn } from '@/lib/utils'
 import type { BookingResponse, Room } from '@/types/rooms'
 
-type SlotType = 'morning' | 'afternoon' | 'custom'
+type SlotType = 'morning' | 'evening'
 
 interface SelectedRoom {
   roomId: number
   rate: string
 }
 
-function computeSlotTimes(date: string, slot: SlotType): { start: string; end: string } {
-  if (!date || slot === 'custom') return { start: '', end: '' }
-  const d = new Date(date + 'T00:00:00')
-  const next = new Date(d)
-  next.setDate(next.getDate() + 1)
-
-  if (slot === 'morning') {
-    d.setHours(6, 0, 0, 0)
-    next.setHours(6, 0, 0, 0)
-  } else {
-    d.setHours(16, 0, 0, 0)
-    next.setHours(16, 0, 0, 0)
+function computeSlotTimes(checkInDate: string, checkOutDate: string, slot: SlotType): { start: string; end: string } {
+  if (!checkInDate || !checkOutDate) return { start: '', end: '' }
+  const hour = slot === 'morning' ? 6 : 16
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return {
+    start: `${checkInDate}T${pad(hour)}:00`,
+    end: `${checkOutDate}T${pad(hour)}:00`,
   }
-
-  const fmt = (dt: Date) => {
-    const y = dt.getFullYear()
-    const m = String(dt.getMonth() + 1).padStart(2, '0')
-    const day = String(dt.getDate()).padStart(2, '0')
-    const h = String(dt.getHours()).padStart(2, '0')
-    const min = String(dt.getMinutes()).padStart(2, '0')
-    return `${y}-${m}-${day}T${h}:${min}`
-  }
-  return { start: fmt(d), end: fmt(next) }
 }
 
 function Skeleton({ className = '' }: { className?: string }) {
@@ -420,7 +405,8 @@ export function Bookings() {
   const [formPhone, setFormPhone] = useState('')
   const [formEventType, setFormEventType] = useState('')
   const [formSlot, setFormSlot] = useState<SlotType>('morning')
-  const [formDate, setFormDate] = useState('')
+  const [formCheckInDate, setFormCheckInDate] = useState('')
+  const [formCheckOutDate, setFormCheckOutDate] = useState('')
   const [formStart, setFormStart] = useState('')
   const [formEnd, setFormEnd] = useState('')
   const [formRooms, setFormRooms] = useState<SelectedRoom[]>([])
@@ -502,21 +488,21 @@ export function Bookings() {
     setFormPhone('')
     setFormEventType('')
     setFormSlot('morning')
-    setFormDate('')
+    setFormCheckInDate('')
+    setFormCheckOutDate('')
     setFormStart('')
     setFormEnd('')
     setFormRooms([])
     setShowCreateForm(false)
   }
 
-  function handleSlotOrDateChange(slot: SlotType, date: string) {
+  function handleDateOrSlotChange(checkIn: string, checkOut: string, slot: SlotType) {
     setFormSlot(slot)
-    setFormDate(date)
-    if (slot !== 'custom' && date) {
-      const times = computeSlotTimes(date, slot)
-      setFormStart(times.start)
-      setFormEnd(times.end)
-    }
+    setFormCheckInDate(checkIn)
+    setFormCheckOutDate(checkOut)
+    const times = computeSlotTimes(checkIn, checkOut, slot)
+    setFormStart(times.start)
+    setFormEnd(times.end)
   }
 
   function toggleRoom(roomId: number) {
@@ -813,65 +799,48 @@ export function Bookings() {
                   />
                 </div>
 
-                {/* Slot & Date - shared for all rooms */}
+                {/* Check-in / Check-out / Slot */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Slot *</label>
-                    <select
+                    <label className="text-sm font-medium">Check-in Date *</label>
+                    <input
+                      type="date"
                       required
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={formSlot}
-                      onChange={(e) => handleSlotOrDateChange(e.target.value as SlotType, formDate)}
-                    >
-                      <option value="morning">Morning (6 AM – 6 AM)</option>
-                      <option value="afternoon">Afternoon (4 PM – 4 PM)</option>
-                      <option value="custom">Custom</option>
-                    </select>
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                      value={formCheckInDate}
+                      onChange={(e) => handleDateOrSlotChange(e.target.value, formCheckOutDate, formSlot)}
+                      onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
+                    />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">
-                      {formSlot === 'custom' ? 'Check-in *' : 'Booking Date *'}
-                    </label>
-                    {formSlot === 'custom' ? (
-                      <input
-                        type="datetime-local"
-                        required
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={formStart}
-                        onChange={(e) => setFormStart(e.target.value)}
-                      />
-                    ) : (
-                      <input
-                        type="date"
-                        required
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={formDate}
-                        onChange={(e) => handleSlotOrDateChange(formSlot, e.target.value)}
-                      />
-                    )}
+                    <label className="text-sm font-medium">Check-out Date *</label>
+                    <input
+                      type="date"
+                      required
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                      value={formCheckOutDate}
+                      onChange={(e) => handleDateOrSlotChange(formCheckInDate, e.target.value, formSlot)}
+                      onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
+                    />
                   </div>
                 </div>
-                {formSlot === 'custom' && (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div />
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-medium">Check-out *</label>
-                      <input
-                        type="datetime-local"
-                        required
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={formEnd}
-                        onChange={(e) => setFormEnd(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                )}
-                {formSlot !== 'custom' && formStart && formEnd && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Slot *</label>
+                  <select
+                    required
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={formSlot}
+                    onChange={(e) => handleDateOrSlotChange(formCheckInDate, formCheckOutDate, e.target.value as SlotType)}
+                  >
+                    <option value="morning">Morning (6 AM check-in / check-out)</option>
+                    <option value="evening">Evening (4 PM check-in / check-out)</option>
+                  </select>
+                </div>
+                {formStart && formEnd && (
                   <p className="text-xs text-muted-foreground -mt-2">
                     {formatDateTime(formStart)}
                     {' → '}
                     {formatDateTime(formEnd)}
-                    {' (24 hrs)'}
                   </p>
                 )}
 
