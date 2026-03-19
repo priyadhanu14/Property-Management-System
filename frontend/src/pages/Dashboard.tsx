@@ -285,9 +285,10 @@ export function Dashboard() {
                     <input
                       type="date"
                       required
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
                       value={enquiryDate}
                       onChange={(e) => setEnquiryDate(e.target.value)}
+                      onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
                     />
                   </div>
                 </div>
