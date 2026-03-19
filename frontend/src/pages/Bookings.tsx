@@ -526,7 +526,14 @@ export function Bookings() {
     )
   }
 
-  const formTotal = formRooms.reduce((sum, r) => sum + (Number(r.rate) || 0), 0)
+  const numNights = (() => {
+    if (!formCheckInDate || !formCheckOutDate) return 1
+    const diff = new Date(formCheckOutDate).getTime() - new Date(formCheckInDate).getTime()
+    const days = Math.round(diff / (1000 * 60 * 60 * 24))
+    return days > 0 ? days : 1
+  })()
+
+  const formTotal = formRooms.reduce((sum, r) => sum + (Number(r.rate) || 0) * numNights, 0)
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -546,7 +553,7 @@ export function Bookings() {
         room_id: r.roomId,
         start_datetime: startDt,
         end_datetime: endDt,
-        rate_snapshot: r.rate ? Number(r.rate) : null,
+        rate_snapshot: r.rate ? Number(r.rate) * numNights : null,
       })),
     })
   }
@@ -891,16 +898,23 @@ export function Bookings() {
                             </span>
                           </label>
                           {selected && (
-                            <input
-                              type="number"
-                              required
-                              min="0"
-                              step="1"
-                              placeholder="Rate"
-                              className="h-8 w-28 rounded-md border border-input bg-background px-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              value={selected.rate}
-                              onChange={(e) => updateRoomRate(room.id, e.target.value)}
-                            />
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                required
+                                min="0"
+                                step="1"
+                                placeholder="Rate/night"
+                                className="h-8 w-28 rounded-md border border-input bg-background px-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                value={selected.rate}
+                                onChange={(e) => updateRoomRate(room.id, e.target.value)}
+                              />
+                              {numNights > 1 && selected.rate && (
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                  × {numNights} days = {formatINR(Number(selected.rate) * numNights)}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                       )
@@ -911,7 +925,7 @@ export function Bookings() {
                 {/* Total */}
                 {formRooms.length > 0 && (
                   <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2 text-sm">
-                    <span className="font-medium">Total ({formRooms.length} room{formRooms.length > 1 ? 's' : ''})</span>
+                    <span className="font-medium">Total ({formRooms.length} room{formRooms.length > 1 ? 's' : ''}{numNights > 1 ? `, ${numNights} days` : ''})</span>
                     <span className="text-lg font-bold">{formatINR(formTotal)}</span>
                   </div>
                 )}
