@@ -70,14 +70,11 @@ async def create_expense(
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new expense entry."""
-    # Normalise month to first-of-month
-    normalised_month = body.month.replace(day=1)
-
     expense = Expense(
         room_id=body.room_id,
         category=body.category.lower().strip(),
         amount=body.amount,
-        month=normalised_month,
+        month=body.month,
         description=body.description,
     )
     session.add(expense)
@@ -98,10 +95,13 @@ async def list_expenses(
     if month:
         try:
             year, mon = month.split("-")
-            first = date(int(year), int(mon), 1)
+            year_int, mon_int = int(year), int(mon)
         except (ValueError, IndexError):
             raise HTTPException(400, "month must be YYYY-MM")
-        stmt = stmt.where(Expense.month == first)
+        stmt = stmt.where(
+            extract("year", Expense.month) == year_int,
+            extract("month", Expense.month) == mon_int,
+        )
 
     if room_id is not None:
         stmt = stmt.where(Expense.room_id == room_id)
@@ -174,6 +174,7 @@ class PropertyExpense(BaseModel):
     category: str
     amount: float
     description: str | None
+    month: date
     created_at: datetime | None
 
 
@@ -237,7 +238,10 @@ async def get_monthly_summary(
     # ---- Expenses per room for the month ----
     expense_stmt = (
         select(Expense)
-        .where(Expense.month == first_of_month)
+        .where(
+            extract("year", Expense.month) == year_int,
+            extract("month", Expense.month) == mon_int,
+        )
         .order_by(Expense.room_id, Expense.category)
     )
     expense_result = await session.execute(expense_stmt)
@@ -299,6 +303,7 @@ async def get_monthly_summary(
                 category=e.category,
                 amount=float(e.amount),
                 description=e.description,
+                month=e.month,
                 created_at=e.created_at,
             )
             for e in property_expenses

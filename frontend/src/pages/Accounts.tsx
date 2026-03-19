@@ -42,6 +42,7 @@ interface PropertyExpense {
   category: string
   amount: number
   description: string | null
+  month: string
   created_at: string | null
 }
 
@@ -407,7 +408,7 @@ export function Accounts() {
                         {e.description ?? '—'}
                       </td>
                       <td className="py-2 pr-4 text-muted-foreground">
-                        {e.created_at ? formatDate(e.created_at) : '—'}
+                        {formatDate(e.month)}
                       </td>
                       <td className="py-2 pr-4 text-right font-semibold text-red-500">
                         {formatCurrency(e.amount)}
@@ -502,9 +503,10 @@ export function Accounts() {
                     <input
                       type="date"
                       required
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
                       value={formDate}
                       onChange={(e) => setFormDate(e.target.value)}
+                      onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
                     />
                   </div>
                 </div>
