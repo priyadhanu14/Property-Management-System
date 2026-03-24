@@ -19,36 +19,21 @@ import {
 import { cn } from '@/lib/utils'
 import type { BookingResponse, Room } from '@/types/rooms'
 
-type SlotType = 'morning' | 'afternoon' | 'custom'
+type SlotType = 'morning' | 'evening'
 
 interface SelectedRoom {
   roomId: number
   rate: string
 }
 
-function computeSlotTimes(date: string, slot: SlotType): { start: string; end: string } {
-  if (!date || slot === 'custom') return { start: '', end: '' }
-  const d = new Date(date + 'T00:00:00')
-  const next = new Date(d)
-  next.setDate(next.getDate() + 1)
-
-  if (slot === 'morning') {
-    d.setHours(6, 0, 0, 0)
-    next.setHours(6, 0, 0, 0)
-  } else {
-    d.setHours(16, 0, 0, 0)
-    next.setHours(16, 0, 0, 0)
+function computeSlotTimes(checkInDate: string, checkOutDate: string, slot: SlotType): { start: string; end: string } {
+  if (!checkInDate || !checkOutDate) return { start: '', end: '' }
+  const hour = slot === 'morning' ? 6 : 16
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return {
+    start: `${checkInDate}T${pad(hour)}:00`,
+    end: `${checkOutDate}T${pad(hour)}:00`,
   }
-
-  const fmt = (dt: Date) => {
-    const y = dt.getFullYear()
-    const m = String(dt.getMonth() + 1).padStart(2, '0')
-    const day = String(dt.getDate()).padStart(2, '0')
-    const h = String(dt.getHours()).padStart(2, '0')
-    const min = String(dt.getMinutes()).padStart(2, '0')
-    return `${y}-${m}-${day}T${h}:${min}`
-  }
-  return { start: fmt(d), end: fmt(next) }
 }
 
 function Skeleton({ className = '' }: { className?: string }) {
@@ -402,6 +387,7 @@ export function Bookings() {
 
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
   const [guestSearch, setGuestSearch] = useState('')
+  const [dateFilter, setDateFilter] = useState('')
   const [showCreateForm, setShowCreateForm] = useState(
     searchParams.get('action') === 'new'
   )
@@ -420,7 +406,8 @@ export function Bookings() {
   const [formPhone, setFormPhone] = useState('')
   const [formEventType, setFormEventType] = useState('')
   const [formSlot, setFormSlot] = useState<SlotType>('morning')
-  const [formDate, setFormDate] = useState('')
+  const [formCheckInDate, setFormCheckInDate] = useState('')
+  const [formCheckOutDate, setFormCheckOutDate] = useState('')
   const [formStart, setFormStart] = useState('')
   const [formEnd, setFormEnd] = useState('')
   const [formRooms, setFormRooms] = useState<SelectedRoom[]>([])
@@ -454,8 +441,14 @@ export function Bookings() {
       if (arr) arr.push(b)
       else map.set(b.group_id, [b])
     }
-    return Array.from(map.values())
-  }, [bookings])
+    let groups = Array.from(map.values())
+    if (dateFilter) {
+      groups = groups.filter((group) =>
+        group.some((b) => b.start_datetime.slice(0, 10) === dateFilter)
+      )
+    }
+    return groups
+  }, [bookings, dateFilter])
 
   // ---- Mutations ----
   const createBooking = useMutation({
@@ -491,6 +484,10 @@ export function Bookings() {
     mutationFn: (id: number) => api.delete(`/bookings/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-today'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['monthly-summary'] })
       setCancelBooking(null)
       toast.success('Booking cancelled')
     },
@@ -502,21 +499,21 @@ export function Bookings() {
     setFormPhone('')
     setFormEventType('')
     setFormSlot('morning')
-    setFormDate('')
+    setFormCheckInDate('')
+    setFormCheckOutDate('')
     setFormStart('')
     setFormEnd('')
     setFormRooms([])
     setShowCreateForm(false)
   }
 
-  function handleSlotOrDateChange(slot: SlotType, date: string) {
+  function handleDateOrSlotChange(checkIn: string, checkOut: string, slot: SlotType) {
     setFormSlot(slot)
-    setFormDate(date)
-    if (slot !== 'custom' && date) {
-      const times = computeSlotTimes(date, slot)
-      setFormStart(times.start)
-      setFormEnd(times.end)
-    }
+    setFormCheckInDate(checkIn)
+    setFormCheckOutDate(checkOut)
+    const times = computeSlotTimes(checkIn, checkOut, slot)
+    setFormStart(times.start)
+    setFormEnd(times.end)
   }
 
   function toggleRoom(roomId: number) {
@@ -533,7 +530,14 @@ export function Bookings() {
     )
   }
 
-  const formTotal = formRooms.reduce((sum, r) => sum + (Number(r.rate) || 0), 0)
+  const numNights = (() => {
+    if (!formCheckInDate || !formCheckOutDate) return 1
+    const diff = new Date(formCheckOutDate).getTime() - new Date(formCheckInDate).getTime()
+    const days = Math.round(diff / (1000 * 60 * 60 * 24))
+    return days > 0 ? days : 1
+  })()
+
+  const formTotal = formRooms.reduce((sum, r) => sum + (Number(r.rate) || 0) * numNights, 0)
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -553,7 +557,7 @@ export function Bookings() {
         room_id: r.roomId,
         start_datetime: startDt,
         end_datetime: endDt,
-        rate_snapshot: r.rate ? Number(r.rate) : null,
+        rate_snapshot: r.rate ? Number(r.rate) * numNights : null,
       })),
     })
   }
@@ -599,6 +603,19 @@ export function Bookings() {
           <option value="checked_out">Checked out</option>
           <option value="cancelled">Cancelled</option>
         </select>
+        <input
+          type="date"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+          value={dateFilter}
+          onChange={(e) => setDateFilter(e.target.value)}
+          onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
+          title="Filter by check-in date"
+        />
+        {dateFilter && (
+          <Button variant="ghost" size="sm" className="h-9 px-2 text-muted-foreground" onClick={() => setDateFilter('')}>
+            <X className="size-4" />
+          </Button>
+        )}
       </div>
 
       {bookingsQuery.isError && (
@@ -613,7 +630,7 @@ export function Bookings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CalendarDays className="size-5" />
-            Bookings ({groupedBookings.length} group{groupedBookings.length !== 1 ? 's' : ''}, {bookings.length} unit{bookings.length !== 1 ? 's' : ''})
+            Bookings
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -813,65 +830,48 @@ export function Bookings() {
                   />
                 </div>
 
-                {/* Slot & Date - shared for all rooms */}
+                {/* Check-in / Check-out / Slot */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Slot *</label>
-                    <select
+                    <label className="text-sm font-medium">Check-in Date *</label>
+                    <input
+                      type="date"
                       required
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={formSlot}
-                      onChange={(e) => handleSlotOrDateChange(e.target.value as SlotType, formDate)}
-                    >
-                      <option value="morning">Morning (6 AM – 6 AM)</option>
-                      <option value="afternoon">Afternoon (4 PM – 4 PM)</option>
-                      <option value="custom">Custom</option>
-                    </select>
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                      value={formCheckInDate}
+                      onChange={(e) => handleDateOrSlotChange(e.target.value, formCheckOutDate, formSlot)}
+                      onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
+                    />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">
-                      {formSlot === 'custom' ? 'Check-in *' : 'Booking Date *'}
-                    </label>
-                    {formSlot === 'custom' ? (
-                      <input
-                        type="datetime-local"
-                        required
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={formStart}
-                        onChange={(e) => setFormStart(e.target.value)}
-                      />
-                    ) : (
-                      <input
-                        type="date"
-                        required
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={formDate}
-                        onChange={(e) => handleSlotOrDateChange(formSlot, e.target.value)}
-                      />
-                    )}
+                    <label className="text-sm font-medium">Check-out Date *</label>
+                    <input
+                      type="date"
+                      required
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                      value={formCheckOutDate}
+                      onChange={(e) => handleDateOrSlotChange(formCheckInDate, e.target.value, formSlot)}
+                      onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
+                    />
                   </div>
                 </div>
-                {formSlot === 'custom' && (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div />
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-medium">Check-out *</label>
-                      <input
-                        type="datetime-local"
-                        required
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={formEnd}
-                        onChange={(e) => setFormEnd(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                )}
-                {formSlot !== 'custom' && formStart && formEnd && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Slot *</label>
+                  <select
+                    required
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={formSlot}
+                    onChange={(e) => handleDateOrSlotChange(formCheckInDate, formCheckOutDate, e.target.value as SlotType)}
+                  >
+                    <option value="morning">Morning (6 AM)</option>
+                    <option value="evening">Evening (4 PM)</option>
+                  </select>
+                </div>
+                {formStart && formEnd && (
                   <p className="text-xs text-muted-foreground -mt-2">
                     {formatDateTime(formStart)}
                     {' → '}
                     {formatDateTime(formEnd)}
-                    {' (24 hrs)'}
                   </p>
                 )}
 
@@ -902,16 +902,23 @@ export function Bookings() {
                             </span>
                           </label>
                           {selected && (
-                            <input
-                              type="number"
-                              required
-                              min="0"
-                              step="1"
-                              placeholder="Rate"
-                              className="h-8 w-28 rounded-md border border-input bg-background px-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              value={selected.rate}
-                              onChange={(e) => updateRoomRate(room.id, e.target.value)}
-                            />
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                required
+                                min="0"
+                                step="1"
+                                placeholder="Rate/night"
+                                className="h-8 w-28 rounded-md border border-input bg-background px-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                value={selected.rate}
+                                onChange={(e) => updateRoomRate(room.id, e.target.value)}
+                              />
+                              {numNights > 1 && selected.rate && (
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                  × {numNights} days = {formatINR(Number(selected.rate) * numNights)}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                       )
@@ -922,7 +929,7 @@ export function Bookings() {
                 {/* Total */}
                 {formRooms.length > 0 && (
                   <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2 text-sm">
-                    <span className="font-medium">Total ({formRooms.length} room{formRooms.length > 1 ? 's' : ''})</span>
+                    <span className="font-medium">Total ({formRooms.length} room{formRooms.length > 1 ? 's' : ''}{numNights > 1 ? `, ${numNights} days` : ''})</span>
                     <span className="text-lg font-bold">{formatINR(formTotal)}</span>
                   </div>
                 )}
@@ -949,6 +956,8 @@ export function Bookings() {
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ['bookings'] })
             queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+            queryClient.invalidateQueries({ queryKey: ['accounts-payments'] })
+            queryClient.invalidateQueries({ queryKey: ['monthly-summary'] })
           }}
         />
       )}

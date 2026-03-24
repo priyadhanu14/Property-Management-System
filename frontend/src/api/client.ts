@@ -3,7 +3,9 @@
  * Base URL is relative in dev (Vite proxy) and configurable for production.
  */
 
-const API_BASE = '/api/v1'
+const API_BASE = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api/v1`
+  : '/api/v1'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   // When Supabase Auth is integrated, attach session token here.
@@ -31,6 +33,7 @@ export async function apiFetch<T>(
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error((err as { detail?: string }).detail ?? res.statusText)
   }
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 

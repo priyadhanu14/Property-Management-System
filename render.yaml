@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: bahuleys-pms
+    name: bahuleys-pms-api
     runtime: python
     rootDir: backend
-    buildCommand: "pip install -r requirements.txt && cd ../frontend && npm install && npm run build"
+    buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: DATABASE_URL
@@ -13,6 +13,8 @@ services:
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: FRONTEND_URL
         sync: false
       - key: PYTHON_VERSION
         value: "3.11.0"

@@ -8,12 +8,6 @@ import type { BookingResponse } from '@/types/rooms'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-const STATUS_PILL: Record<string, string> = {
-  reserved: 'bg-blue-500/80 text-white',
-  occupied: 'bg-amber-500/80 text-white',
-  checked_out: 'bg-emerald-500/60 text-white',
-  cancelled: 'bg-muted text-muted-foreground line-through',
-}
 
 interface CalendarDay {
   date: Date
@@ -83,10 +77,11 @@ export interface EnquiryOut {
 
 interface BookingCalendarProps {
   onAddEnquiry?: (date: string) => void
+  onDeleteEnquiry?: (id: number) => void
   enquiryRefetchKey?: number
 }
 
-export function BookingCalendar({ onAddEnquiry, enquiryRefetchKey }: BookingCalendarProps) {
+export function BookingCalendar({ onAddEnquiry, onDeleteEnquiry, enquiryRefetchKey }: BookingCalendarProps) {
   const [viewDate, setViewDate] = useState(() => {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() }
@@ -134,6 +129,13 @@ export function BookingCalendar({ onAddEnquiry, enquiryRefetchKey }: BookingCale
       api.get<EnquiryOut[]>(`/enquiries?from_date=${fromDate}&to_date=${toDate}`),
     staleTime: 30_000,
   })
+
+  const { data: rooms } = useQuery({
+    queryKey: ['rooms'],
+    queryFn: () => api.get<{ id: number; is_active: boolean }[]>('/rooms'),
+    staleTime: 5 * 60_000,
+  })
+  const totalRooms = (rooms ?? []).filter((r) => r.is_active).length || 1
 
   // Group by group_id and map to calendar-friendly objects
   const grouped = useMemo(() => {
@@ -223,37 +225,51 @@ export function BookingCalendar({ onAddEnquiry, enquiryRefetchKey }: BookingCale
                 {day.date.getDate()}
               </div>
               <div className="space-y-0.5">
-                {dayBookings.slice(0, 2).map((g) => (
-                  <div
-                    key={g.groupId}
-                    className={cn(
-                      'truncate rounded px-1 py-px text-[10px] leading-tight font-medium',
-                      STATUS_PILL[g.status] ?? STATUS_PILL.reserved
-                    )}
-                    title={`${g.guestName} – ${g.units.join(', ')}`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {g.guestName.split(' ')[0]}
-                    {g.units.length > 1 ? ` (${g.units.length})` : ` · ${g.units[0]}`}
-                  </div>
-                ))}
-                {dayEnquiries.slice(0, 2).map((e) => (
-                  <div
-                    key={`enq-${e.id}`}
-                    className="truncate rounded px-1 py-px text-[10px] leading-tight font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30"
-                    title={`Enquiry: ${e.guest_name} · ${e.phone}${e.unit_code ? ` · ${e.unit_code}` : ''}${e.notes ? ` · ${e.notes}` : ''}`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    📞 {e.guest_name.split(' ')[0]}
-                    {e.unit_code ? ` · ${e.unit_code}` : ''}
-                  </div>
-                ))}
                 {(() => {
-                  const overflow = (dayBookings.length - 2) + (dayEnquiries.length - 2)
-                  return overflow > 0 ? (
-                    <div className="text-[10px] text-muted-foreground pl-1">+{overflow} more</div>
-                  ) : null
+                  const bookedRooms = new Set(dayBookings.flatMap((g) => g.units)).size
+                  const total = totalRooms
+                  if (bookedRooms === 0) return null
+                  const isFull = bookedRooms >= total
+                  const isHalf = bookedRooms >= total / 2
+                  return (
+                    <div
+                      className={cn(
+                        'rounded px-1 py-px text-[10px] leading-tight font-semibold text-center',
+                        isFull
+                          ? 'bg-red-500/80 text-white'
+                          : isHalf
+                          ? 'bg-amber-500/80 text-white'
+                          : 'bg-emerald-500/70 text-white'
+                      )}
+                      title={dayBookings.map(g => `${g.guestName} · ${g.units.join(', ')}`).join('\n')}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {bookedRooms}/{total}
+                    </div>
+                  )
                 })()}
+                {dayEnquiries.slice(0, 2).map((enq) => (
+                  <div
+                    key={`enq-${enq.id}`}
+                    className="group flex items-center justify-between rounded px-1 py-px text-[10px] leading-tight font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                    title={`Enquiry: ${enq.guest_name} · ${enq.phone}${enq.unit_code ? ` · ${enq.unit_code}` : ''}${enq.notes ? ` · ${enq.notes}` : ''}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span className="truncate">📞 {enq.guest_name.split(' ')[0]}{enq.unit_code ? ` · ${enq.unit_code}` : ''}</span>
+                    {onDeleteEnquiry && (
+                      <button
+                        className="ml-0.5 shrink-0 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity"
+                        onClick={(e) => { e.stopPropagation(); onDeleteEnquiry(enq.id) }}
+                        title="Delete enquiry"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {dayEnquiries.length > 2 && (
+                  <div className="text-[10px] text-muted-foreground pl-1">+{dayEnquiries.length - 2} more</div>
+                )}
               </div>
             </div>
           )

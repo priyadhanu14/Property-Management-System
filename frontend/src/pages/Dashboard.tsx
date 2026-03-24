@@ -66,6 +66,16 @@ export function Dashboard() {
   })
   const rooms = roomsQuery.data ?? []
 
+  const deleteEnquiry = useMutation({
+    mutationFn: (id: number) => api.delete(`/enquiries/${id}`),
+    onSuccess: () => {
+      toast.success('Enquiry deleted')
+      setEnquiryRefetchKey((k) => k + 1)
+      queryClient.invalidateQueries({ queryKey: ['calendar-enquiries'] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
   const createEnquiry = useMutation({
     mutationFn: (body: {
       room_id: number | null
@@ -126,6 +136,7 @@ export function Dashboard() {
           <CardContent className="p-3 sm:p-4 h-full">
             <BookingCalendar
               onAddEnquiry={(date) => openEnquiryForm(date)}
+              onDeleteEnquiry={(id) => deleteEnquiry.mutate(id)}
               enquiryRefetchKey={enquiryRefetchKey}
             />
           </CardContent>
@@ -285,9 +296,10 @@ export function Dashboard() {
                     <input
                       type="date"
                       required
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
                       value={enquiryDate}
                       onChange={(e) => setEnquiryDate(e.target.value)}
+                      onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
                     />
                   </div>
                 </div>
