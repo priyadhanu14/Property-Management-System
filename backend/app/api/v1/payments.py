@@ -1,5 +1,5 @@
 """Payments endpoints: record, list, update, delete payments."""
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -154,7 +154,6 @@ async def list_payments(
         stmt = stmt.where(Payment.payment_mode == payment_mode)
     if from_date:
         try:
-            from datetime import date, time
             fd = date.fromisoformat(from_date)
             stmt = stmt.where(
                 Payment.paid_at >= datetime.combine(fd, time.min, tzinfo=timezone.utc)
@@ -163,7 +162,6 @@ async def list_payments(
             raise HTTPException(400, "from_date must be YYYY-MM-DD")
     if to_date:
         try:
-            from datetime import date, time
             td = date.fromisoformat(to_date)
             stmt = stmt.where(
                 Payment.paid_at <= datetime.combine(td, time.max, tzinfo=timezone.utc)

@@ -74,12 +74,11 @@ async def get_today(session: AsyncSession = Depends(get_session)):
     total_rooms = (await session.execute(total_rooms_stmt)).scalar() or 0
     availability_count = max(0, total_rooms - occupancy_count)
 
-    # Pending balances: sum of booking rate_snapshot minus sum of payments for non-cancelled bookings
-    # Revenue expected from active bookings
+    # Pending balances: sum of rate_snapshot for active bookings minus payments received
     expected_stmt = (
         select(func.coalesce(func.sum(Booking.rate_snapshot), 0))
         .select_from(Booking)
-        .where(Booking.status.notin_(["cancelled"]))
+        .where(Booking.status.in_(["reserved", "occupied"]))
     )
     total_expected = float((await session.execute(expected_stmt)).scalar() or 0)
 

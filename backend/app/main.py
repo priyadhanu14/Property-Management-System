@@ -1,17 +1,13 @@
+import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from app.api.v1 import router as api_v1
 from app.db.session import async_session_maker
 from app.models.room import RoomType, Room
-
-DIST_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 # Fixed rooms for Bahuleya Service Apartments
 SEED_ROOM_TYPES = ["2BHK", "3BHK"]
@@ -73,9 +69,18 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# CORS: allow the Netlify frontend (and localhost for dev)
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "")
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+if FRONTEND_URL:
+    allowed_origins.append(FRONTEND_URL)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -93,17 +98,3 @@ app.include_router(api_v1, prefix="/api/v1", tags=["v1"])
 @app.api_route("/health", methods=["GET", "HEAD"], include_in_schema=False)
 def health():
     return {"status": "ok"}
-# ---------------------------------------------------------------------------
-# Serve the built React frontend (Vite) from the same process.
-# Only active when frontend/dist exists (i.e. after `npm run build`).
-# ---------------------------------------------------------------------------
-if DIST_DIR.is_dir():
-    if (DIST_DIR / "assets").is_dir():
-        app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="static-assets")
-
-    @app.get("/{full_path:path}")
-    async def spa_fallback(full_path: str):
-        file = (DIST_DIR / full_path).resolve()
-        if full_path and file.is_relative_to(DIST_DIR) and file.exists() and file.is_file():
-            return FileResponse(file)
-        return FileResponse(DIST_DIR / "index.html")
