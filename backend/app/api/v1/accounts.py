@@ -215,26 +215,54 @@ async def get_monthly_summary(
     mon_int = int(mon)
 
     # ---- Revenue per room (payments within the month, excluding cancelled bookings) ----
-    revenue_stmt = (
+    # Payments are linked at the group level (booking_id is often NULL).
+    # Strategy: sum payments per group for the month, then distribute proportionally
+    # across the group's non-cancelled bookings based on rate_snapshot.
+    group_payment_stmt = (
         select(
-            Booking.room_id,
-            func.coalesce(func.sum(Payment.amount), 0).label("revenue"),
+            Payment.booking_group_id,
+            func.coalesce(func.sum(Payment.amount), 0).label("total_paid"),
         )
-        .select_from(Payment)
-        .join(Booking, Payment.booking_id == Booking.id)
         .where(
             extract("year", Payment.paid_at) == year_int,
             extract("month", Payment.paid_at) == mon_int,
-            Booking.status != "cancelled",
         )
-        .group_by(Booking.room_id)
+        .group_by(Payment.booking_group_id)
     )
-    revenue_result = await session.execute(revenue_stmt)
+    group_payment_result = await session.execute(group_payment_stmt)
+    group_paid_map: dict[int, float] = {}
+    for row in group_payment_result:
+        group_paid_map[int(row[0])] = float(row[1]) if row[1] else 0.0
+
+    # For each group with payments, get the non-cancelled bookings and their rates
     revenue_map: dict[int | None, float] = {}
-    for row in revenue_result:
-        room_id = row[0]
-        rev = float(row[1]) if row[1] else 0.0
-        revenue_map[room_id] = rev
+    if group_paid_map:
+        group_bookings_stmt = (
+            select(Booking.group_id, Booking.room_id, Booking.rate_snapshot)
+            .where(
+                Booking.group_id.in_(list(group_paid_map.keys())),
+                Booking.status != "cancelled",
+            )
+        )
+        group_bookings_result = await session.execute(group_bookings_stmt)
+
+        # Build group -> [(room_id, rate)] mapping
+        group_rooms: dict[int, list[tuple[int, float]]] = {}
+        for gid, rid, rate in group_bookings_result:
+            group_rooms.setdefault(gid, []).append((rid, float(rate) if rate else 0.0))
+
+        # Distribute each group's payments proportionally by rate_snapshot
+        for gid, total_paid in group_paid_map.items():
+            rooms_in_group = group_rooms.get(gid, [])
+            total_rate = sum(r for _, r in rooms_in_group)
+            for rid, rate in rooms_in_group:
+                if total_rate > 0:
+                    share = total_paid * (rate / total_rate)
+                elif rooms_in_group:
+                    share = total_paid / len(rooms_in_group)
+                else:
+                    share = 0.0
+                revenue_map[rid] = revenue_map.get(rid, 0.0) + share
 
     # ---- Expenses per room for the month ----
     expense_stmt = (

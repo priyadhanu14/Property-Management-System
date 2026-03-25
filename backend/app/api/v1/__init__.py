@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.api.v1 import (
     dashboard,
     rooms,
@@ -10,8 +10,9 @@ from app.api.v1 import (
     audit_logs,
     enquiries,
 )
+from app.auth import require_auth
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(rooms.router, prefix="/rooms", tags=["rooms"])
 router.include_router(room_types.router, prefix="/room-types", tags=["room-types"])

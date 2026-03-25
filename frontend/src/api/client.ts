@@ -3,17 +3,20 @@
  * Base URL is relative in dev (Vite proxy) and configurable for production.
  */
 
+import { supabase } from '@/lib/supabase'
+
 const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api/v1`
   : '/api/v1'
 
 async function getAuthHeaders(): Promise<HeadersInit> {
-  // When Supabase Auth is integrated, attach session token here.
-  const token = typeof window !== 'undefined' ? (window as unknown as { __SUPABASE_ACCESS_TOKEN?: string }).__SUPABASE_ACCESS_TOKEN : undefined
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
-  if (token) headers['Authorization'] = `Bearer ${token}`
+  const { data: { session } } = await supabase.auth.getSession()
+  if (session?.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`
+  }
   return headers
 }
 
