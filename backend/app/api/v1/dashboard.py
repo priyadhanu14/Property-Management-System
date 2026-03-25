@@ -74,18 +74,30 @@ async def get_today(session: AsyncSession = Depends(get_session)):
     total_rooms = (await session.execute(total_rooms_stmt)).scalar() or 0
     availability_count = max(0, total_rooms - occupancy_count)
 
-    # Pending balances: sum of rate_snapshot for active bookings minus payments received
+    # Pending balances: for each group with active bookings, sum rates minus payments
+    # First get group_ids that have at least one active booking
+    active_group_ids_stmt = (
+        select(Booking.group_id)
+        .where(Booking.status.in_(["reserved", "occupied"]))
+        .distinct()
+    )
+
+    # Sum of rate_snapshot for active bookings in those groups
     expected_stmt = (
         select(func.coalesce(func.sum(Booking.rate_snapshot), 0))
         .select_from(Booking)
-        .where(Booking.status.in_(["reserved", "occupied"]))
+        .where(
+            Booking.group_id.in_(active_group_ids_stmt),
+            Booking.status != "cancelled",
+        )
     )
     total_expected = float((await session.execute(expected_stmt)).scalar() or 0)
 
-    # Total payments received
+    # Total payments only for those active groups
     paid_stmt = (
         select(func.coalesce(func.sum(Payment.amount), 0))
         .select_from(Payment)
+        .where(Payment.booking_group_id.in_(active_group_ids_stmt))
     )
     total_paid = float((await session.execute(paid_stmt)).scalar() or 0)
 

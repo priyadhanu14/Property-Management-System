@@ -1,5 +1,5 @@
 """Audit Log endpoints: list and filter change history."""
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -61,7 +61,6 @@ async def list_audit_logs(
         stmt = stmt.where(AuditLog.action == action)
     if from_date:
         try:
-            from datetime import date, time
             fd = date.fromisoformat(from_date)
             stmt = stmt.where(
                 AuditLog.created_at >= datetime.combine(fd, time.min, tzinfo=timezone.utc)
@@ -70,7 +69,6 @@ async def list_audit_logs(
             raise HTTPException(400, "from_date must be YYYY-MM-DD")
     if to_date:
         try:
-            from datetime import date, time
             td = date.fromisoformat(to_date)
             stmt = stmt.where(
                 AuditLog.created_at <= datetime.combine(td, time.max, tzinfo=timezone.utc)

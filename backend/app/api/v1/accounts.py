@@ -70,9 +70,12 @@ async def create_expense(
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new expense entry."""
+    category = body.category.lower().strip()
+    if category not in EXPENSE_CATEGORIES:
+        raise HTTPException(400, f"Invalid category. Must be one of: {EXPENSE_CATEGORIES}")
     expense = Expense(
         room_id=body.room_id,
-        category=body.category.lower().strip(),
+        category=category,
         amount=body.amount,
         month=body.month,
         description=body.description,
@@ -87,6 +90,8 @@ async def create_expense(
 async def list_expenses(
     month: str = "",  # YYYY-MM
     room_id: int | None = None,
+    limit: int = 200,
+    offset: int = 0,
     session: AsyncSession = Depends(get_session),
 ):
     """List expenses, optionally filtered by month and/or room."""
@@ -106,6 +111,8 @@ async def list_expenses(
     if room_id is not None:
         stmt = stmt.where(Expense.room_id == room_id)
 
+    stmt = stmt.limit(limit).offset(offset)
+
     result = await session.execute(stmt)
     return result.scalars().all()
 
@@ -122,7 +129,10 @@ async def update_expense(
         raise HTTPException(404, "Expense not found")
 
     if body.category is not None:
-        expense.category = body.category.lower().strip()
+        category = body.category.lower().strip()
+        if category not in EXPENSE_CATEGORIES:
+            raise HTTPException(400, f"Invalid category. Must be one of: {EXPENSE_CATEGORIES}")
+        expense.category = category
     if body.amount is not None:
         expense.amount = body.amount
     if body.month is not None:
@@ -147,6 +157,7 @@ async def delete_expense(
     if not expense:
         raise HTTPException(404, "Expense not found")
     await session.delete(expense)
+    await session.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -207,34 +218,65 @@ async def get_monthly_summary(
 
     try:
         year, mon = month.split("-")
-        first_of_month = date(int(year), int(mon), 1)
+        year_val, mon_val = int(year), int(mon)
+        if not (1 <= mon_val <= 12):
+            raise ValueError("month out of range")
+        first_of_month = date(year_val, mon_val, 1)
     except (ValueError, IndexError):
-        raise HTTPException(400, "month must be YYYY-MM")
+        raise HTTPException(400, "month must be YYYY-MM with valid month (01-12)")
 
     year_int = int(year)
     mon_int = int(mon)
 
     # ---- Revenue per room (payments within the month, excluding cancelled bookings) ----
-    revenue_stmt = (
+    # Payments are linked at the group level (booking_id is often NULL).
+    # Strategy: sum payments per group for the month, then distribute proportionally
+    # across the group's non-cancelled bookings based on rate_snapshot.
+    group_payment_stmt = (
         select(
-            Booking.room_id,
-            func.coalesce(func.sum(Payment.amount), 0).label("revenue"),
+            Payment.booking_group_id,
+            func.coalesce(func.sum(Payment.amount), 0).label("total_paid"),
         )
-        .select_from(Payment)
-        .join(Booking, Payment.booking_id == Booking.id)
         .where(
             extract("year", Payment.paid_at) == year_int,
             extract("month", Payment.paid_at) == mon_int,
-            Booking.status != "cancelled",
         )
-        .group_by(Booking.room_id)
+        .group_by(Payment.booking_group_id)
     )
-    revenue_result = await session.execute(revenue_stmt)
+    group_payment_result = await session.execute(group_payment_stmt)
+    group_paid_map: dict[int, float] = {}
+    for row in group_payment_result:
+        group_paid_map[int(row[0])] = float(row[1]) if row[1] else 0.0
+
+    # For each group with payments, get the non-cancelled bookings and their rates
     revenue_map: dict[int | None, float] = {}
-    for row in revenue_result:
-        room_id = row[0]
-        rev = float(row[1]) if row[1] else 0.0
-        revenue_map[room_id] = rev
+    if group_paid_map:
+        group_bookings_stmt = (
+            select(Booking.group_id, Booking.room_id, Booking.rate_snapshot)
+            .where(
+                Booking.group_id.in_(list(group_paid_map.keys())),
+                Booking.status != "cancelled",
+            )
+        )
+        group_bookings_result = await session.execute(group_bookings_stmt)
+
+        # Build group -> [(room_id, rate)] mapping
+        group_rooms: dict[int, list[tuple[int, float]]] = {}
+        for gid, rid, rate in group_bookings_result:
+            group_rooms.setdefault(gid, []).append((rid, float(rate) if rate else 0.0))
+
+        # Distribute each group's payments proportionally by rate_snapshot
+        for gid, total_paid in group_paid_map.items():
+            rooms_in_group = group_rooms.get(gid, [])
+            total_rate = sum(r for _, r in rooms_in_group)
+            for rid, rate in rooms_in_group:
+                if total_rate > 0:
+                    share = total_paid * (rate / total_rate)
+                elif rooms_in_group:
+                    share = total_paid / len(rooms_in_group)
+                else:
+                    share = 0.0
+                revenue_map[rid] = revenue_map.get(rid, 0.0) + share
 
     # ---- Expenses per room for the month ----
     expense_stmt = (

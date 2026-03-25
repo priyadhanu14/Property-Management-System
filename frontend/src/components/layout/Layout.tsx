@@ -1,7 +1,8 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { LayoutDashboard, Building2, CalendarDays, IndianRupee, Sun, Moon } from 'lucide-react'
+import { LayoutDashboard, Building2, CalendarDays, IndianRupee, Sun, Moon, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/components/ThemeProvider'
+import { useAuth } from '@/components/AuthProvider'
 import { Button } from '@/components/ui/button'
 
 const nav = [
@@ -13,6 +14,7 @@ const nav = [
 
 export function Layout() {
   const { theme, toggleTheme } = useTheme()
+  const { signOut } = useAuth()
 
   return (
     <div className="min-h-dvh flex flex-col bg-background">
@@ -40,6 +42,9 @@ export function Layout() {
           </nav>
           <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle theme" className="shrink-0">
             {theme === 'dark' ? <Sun className="size-5" /> : <Moon className="size-5" />}
+          </Button>
+          <Button variant="ghost" size="icon" onClick={signOut} aria-label="Sign out" className="shrink-0">
+            <LogOut className="size-5" />
           </Button>
         </div>
       </header>
