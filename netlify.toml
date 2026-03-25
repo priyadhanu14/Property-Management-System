@@ -1,0 +1,10 @@
+[build]
+  base = "frontend"
+  command = "npm install && npm run build"
+  publish = "frontend/dist"
+
+# SPA fallback – all routes serve index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
