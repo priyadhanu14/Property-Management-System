@@ -70,9 +70,12 @@ async def create_expense(
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new expense entry."""
+    category = body.category.lower().strip()
+    if category not in EXPENSE_CATEGORIES:
+        raise HTTPException(400, f"Invalid category. Must be one of: {EXPENSE_CATEGORIES}")
     expense = Expense(
         room_id=body.room_id,
-        category=body.category.lower().strip(),
+        category=category,
         amount=body.amount,
         month=body.month,
         description=body.description,
@@ -87,6 +90,8 @@ async def create_expense(
 async def list_expenses(
     month: str = "",  # YYYY-MM
     room_id: int | None = None,
+    limit: int = 200,
+    offset: int = 0,
     session: AsyncSession = Depends(get_session),
 ):
     """List expenses, optionally filtered by month and/or room."""
@@ -106,6 +111,8 @@ async def list_expenses(
     if room_id is not None:
         stmt = stmt.where(Expense.room_id == room_id)
 
+    stmt = stmt.limit(limit).offset(offset)
+
     result = await session.execute(stmt)
     return result.scalars().all()
 
@@ -122,7 +129,10 @@ async def update_expense(
         raise HTTPException(404, "Expense not found")
 
     if body.category is not None:
-        expense.category = body.category.lower().strip()
+        category = body.category.lower().strip()
+        if category not in EXPENSE_CATEGORIES:
+            raise HTTPException(400, f"Invalid category. Must be one of: {EXPENSE_CATEGORIES}")
+        expense.category = category
     if body.amount is not None:
         expense.amount = body.amount
     if body.month is not None:
@@ -147,6 +157,7 @@ async def delete_expense(
     if not expense:
         raise HTTPException(404, "Expense not found")
     await session.delete(expense)
+    await session.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -207,9 +218,12 @@ async def get_monthly_summary(
 
     try:
         year, mon = month.split("-")
-        first_of_month = date(int(year), int(mon), 1)
+        year_val, mon_val = int(year), int(mon)
+        if not (1 <= mon_val <= 12):
+            raise ValueError("month out of range")
+        first_of_month = date(year_val, mon_val, 1)
     except (ValueError, IndexError):
-        raise HTTPException(400, "month must be YYYY-MM")
+        raise HTTPException(400, "month must be YYYY-MM with valid month (01-12)")
 
     year_int = int(year)
     mon_int = int(mon)

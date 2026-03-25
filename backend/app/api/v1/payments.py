@@ -277,3 +277,4 @@ async def delete_payment(
     if not payment:
         raise HTTPException(404, "Payment not found")
     await session.delete(payment)
+    await session.flush()

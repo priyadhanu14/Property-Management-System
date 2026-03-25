@@ -272,8 +272,11 @@ export function Accounts() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    // Use picked date or fall back to first of current month
-    const expenseMonth = formDate || `${month}-01`
+    if (!formDate) {
+      toast.error('Please select a date')
+      return
+    }
+    const expenseMonth = formDate
     createExpense.mutate({
       room_id: formRoomId ? Number(formRoomId) : null,
       category: formCategory,
@@ -429,53 +432,57 @@ export function Accounts() {
       </Card>
 
       {/* ---- Expenses ---- */}
-      {summary && summary.property_wide_expenses.length > 0 && (
+      {summary && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Expenses</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-2 pr-4 font-medium">Category</th>
-                    <th className="py-2 pr-4 font-medium">Description</th>
-                    <th className="py-2 pr-4 font-medium">Date Paid</th>
-                    <th className="py-2 pr-4 font-medium text-right">Amount</th>
-                    <th className="py-2 font-medium" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.property_wide_expenses.map((e) => (
-                    <tr key={e.id} className="border-b last:border-0">
-                      <td className="py-2 pr-4 font-medium">
-                        {CATEGORY_LABELS[e.category] ?? e.category}
-                      </td>
-                      <td className="py-2 pr-4 text-muted-foreground">
-                        {e.description ?? '—'}
-                      </td>
-                      <td className="py-2 pr-4 text-muted-foreground">
-                        {formatDate(e.month)}
-                      </td>
-                      <td className="py-2 pr-4 text-right font-semibold text-red-500">
-                        {formatCurrency(e.amount)}
-                      </td>
-                      <td className="py-2 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          onClick={() => deleteExpense.mutate(e.id)}
-                        >
-                          <Trash2 className="size-3.5 text-destructive" />
-                        </Button>
-                      </td>
+            {summary.property_wide_expenses.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No property-wide expenses this month.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="py-2 pr-4 font-medium">Category</th>
+                      <th className="py-2 pr-4 font-medium">Description</th>
+                      <th className="py-2 pr-4 font-medium">Date Paid</th>
+                      <th className="py-2 pr-4 font-medium text-right">Amount</th>
+                      <th className="py-2 font-medium" />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {summary.property_wide_expenses.map((e) => (
+                      <tr key={e.id} className="border-b last:border-0">
+                        <td className="py-2 pr-4 font-medium">
+                          {CATEGORY_LABELS[e.category] ?? e.category}
+                        </td>
+                        <td className="py-2 pr-4 text-muted-foreground">
+                          {e.description ?? '—'}
+                        </td>
+                        <td className="py-2 pr-4 text-muted-foreground">
+                          {formatDate(e.month)}
+                        </td>
+                        <td className="py-2 pr-4 text-right font-semibold text-red-500">
+                          {formatCurrency(e.amount)}
+                        </td>
+                        <td className="py-2 text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            onClick={() => deleteExpense.mutate(e.id)}
+                          >
+                            <Trash2 className="size-3.5 text-destructive" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

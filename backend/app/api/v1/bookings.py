@@ -157,6 +157,11 @@ async def get_group_total_rate(session: AsyncSession, group_id: int) -> float:
     return float((await session.execute(stmt)).scalar() or 0)
 
 
+def to_utc(dt: datetime) -> datetime:
+    """Ensure a datetime is UTC-aware."""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
 # ---------------------------------------------------------------------------
 # CRUD
 # ---------------------------------------------------------------------------
@@ -179,10 +184,6 @@ async def create_booking(
             raise HTTPException(400, "start_datetime must be before end_datetime")
 
         # Check for overlapping bookings (back-to-back is allowed)
-        # Ensure UTC-aware datetimes for PostgreSQL timestamptz comparison
-        def to_utc(dt: datetime) -> datetime:
-            return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
-
         start_utc = to_utc(item.start_datetime)
         end_utc = to_utc(item.end_datetime)
 
