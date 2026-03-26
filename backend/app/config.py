@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     supabase_jwt_secret: str = ""
 
+    # Set to true to disable auth (local dev)
+    auth_disabled: bool = False
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

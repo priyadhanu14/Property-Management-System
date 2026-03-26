@@ -15,6 +15,12 @@ export function Login() {
     setError('')
     setLoading(true)
 
+    if (!supabase) {
+      setError('Authentication not configured')
+      setLoading(false)
+      return
+    }
+
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,

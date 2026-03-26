@@ -13,8 +13,8 @@ async def require_auth(request: Request) -> dict:
     Returns the decoded token payload on success.
     Skips validation when SUPABASE_JWT_SECRET is not configured (dev mode).
     """
-    # If no JWT secret is configured, skip auth (local dev)
-    if not settings.supabase_jwt_secret:
+    # Skip auth when explicitly disabled or no JWT secret configured (local dev)
+    if settings.auth_disabled or not settings.supabase_jwt_secret:
         return {}
 
     auth_header = request.headers.get("Authorization", "")
