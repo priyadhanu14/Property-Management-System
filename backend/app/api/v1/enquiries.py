@@ -1,5 +1,5 @@
 """Enquiries endpoints: log and retrieve room enquiry calls."""
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -34,7 +34,7 @@ class EnquiryOut(BaseModel):
     phone: str
     enquiry_date: date
     notes: str | None
-    created_at: str | None
+    created_at: datetime | None
 
     class Config:
         from_attributes = True
@@ -50,6 +50,8 @@ async def list_enquiries(
     from_date: str | None = Query(None, description="YYYY-MM-DD"),
     to_date: str | None = Query(None, description="YYYY-MM-DD"),
     room_id: int | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
 ):
     """List enquiries, optionally filtered by date range and/or room."""
@@ -74,6 +76,8 @@ async def list_enquiries(
     if room_id is not None:
         stmt = stmt.where(Enquiry.room_id == room_id)
 
+    stmt = stmt.limit(limit).offset(offset)
+
     result = await session.execute(stmt)
     enquiries = result.scalars().all()
 
@@ -86,7 +90,7 @@ async def list_enquiries(
             phone=e.phone,
             enquiry_date=e.enquiry_date,
             notes=e.notes,
-            created_at=e.created_at.isoformat() if e.created_at else None,
+            created_at=e.created_at,
         )
         for e in enquiries
     ]
@@ -134,3 +138,4 @@ async def delete_enquiry(
     if not enquiry:
         raise HTTPException(404, "Enquiry not found")
     await session.delete(enquiry)
+    await session.flush()

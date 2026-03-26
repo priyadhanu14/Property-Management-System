@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
@@ -114,7 +115,7 @@ async def delete_room_type(
     try:
         await session.delete(rt)
         await session.flush()
-    except Exception:
+    except IntegrityError:
         raise HTTPException(
             409,
             "Cannot delete: rooms still reference this type. Reassign rooms first.",
