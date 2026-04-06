@@ -57,6 +57,12 @@ export interface BookingResponse {
   created_at: string | null
 }
 
+export interface RoomTypeAvailability {
+  name: string
+  available: number
+  total: number
+}
+
 export interface DashboardData {
   check_ins_today: number
   check_outs_today: number
@@ -64,4 +70,5 @@ export interface DashboardData {
   availability_count: number
   total_rooms: number
   pending_balances: number
+  availability_by_type: RoomTypeAvailability[]
 }
