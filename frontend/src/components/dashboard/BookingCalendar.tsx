@@ -242,7 +242,8 @@ export function BookingCalendar({ onAddEnquiry, onDeleteEnquiry, enquiryRefetchK
               <div className="space-y-0.5">
                 {(() => {
                   const bookedByType = new Map<string, number>()
-                  for (const unit of dayBookings.flatMap((g) => g.units)) {
+                  const uniqueUnits = new Set(dayBookings.flatMap((g) => g.units))
+                  for (const unit of uniqueUnits) {
                     const type = unitToType.get(unit)
                     if (type) bookedByType.set(type, (bookedByType.get(type) ?? 0) + 1)
                   }
