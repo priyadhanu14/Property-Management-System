@@ -132,10 +132,25 @@ export function BookingCalendar({ onAddEnquiry, onDeleteEnquiry, enquiryRefetchK
 
   const { data: rooms } = useQuery({
     queryKey: ['rooms'],
-    queryFn: () => api.get<{ id: number; is_active: boolean }[]>('/rooms'),
+    queryFn: () => api.get<{ id: number; unit_code: string; room_type: string; is_active: boolean }[]>('/rooms'),
     staleTime: 5 * 60_000,
   })
-  const totalRooms = (rooms ?? []).filter((r) => r.is_active).length || 1
+
+  const activeRooms = (rooms ?? []).filter((r) => r.is_active)
+
+  // unit_code → room_type (e.g. "B1" → "2BHK")
+  const unitToType = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const r of activeRooms) map.set(r.unit_code, r.room_type)
+    return map
+  }, [activeRooms])
+
+  // room_type → total count (e.g. "2BHK" → 5)
+  const typeTotals = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const r of activeRooms) map.set(r.room_type, (map.get(r.room_type) ?? 0) + 1)
+    return map
+  }, [activeRooms])
 
   // Group by group_id and map to calendar-friendly objects
   const grouped = useMemo(() => {
@@ -226,25 +241,39 @@ export function BookingCalendar({ onAddEnquiry, onDeleteEnquiry, enquiryRefetchK
               </div>
               <div className="space-y-0.5">
                 {(() => {
-                  const bookedRooms = new Set(dayBookings.flatMap((g) => g.units)).size
-                  const total = totalRooms
-                  if (bookedRooms === 0) return null
-                  const isFull = bookedRooms >= total
-                  const isHalf = bookedRooms >= total / 2
+                  const bookedByType = new Map<string, number>()
+                  for (const unit of dayBookings.flatMap((g) => g.units)) {
+                    const type = unitToType.get(unit)
+                    if (type) bookedByType.set(type, (bookedByType.get(type) ?? 0) + 1)
+                  }
+                  if (bookedByType.size === 0) return null
                   return (
                     <div
-                      className={cn(
-                        'rounded px-1 py-px text-[10px] leading-tight font-semibold text-center',
-                        isFull
-                          ? 'bg-red-500/80 text-white'
-                          : isHalf
-                          ? 'bg-amber-500/80 text-white'
-                          : 'bg-emerald-500/70 text-white'
-                      )}
+                      className="flex flex-wrap gap-0.5"
                       title={dayBookings.map(g => `${g.guestName} · ${g.units.join(', ')}`).join('\n')}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {bookedRooms}/{total}
+                      {Array.from(typeTotals.entries()).sort().map(([type, total]) => {
+                        const booked = bookedByType.get(type) ?? 0
+                        if (booked === 0) return null
+                        const isFull = booked >= total
+                        const isHalf = booked >= total / 2
+                        return (
+                          <div
+                            key={type}
+                            className={cn(
+                              'rounded px-1 py-px text-[10px] leading-tight font-semibold',
+                              isFull
+                                ? 'bg-red-500/80 text-white'
+                                : isHalf
+                                ? 'bg-amber-500/80 text-white'
+                                : 'bg-emerald-500/70 text-white'
+                            )}
+                          >
+                            {type}: {booked}/{total}
+                          </div>
+                        )
+                      })}
                     </div>
                   )
                 })()}
