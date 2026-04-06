@@ -9,9 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_session
 from app.models.booking import Booking, BookingGroup
 from app.models.payment import Payment
-from app.models.room import Room
+from app.models.room import Room, RoomType
 
 router = APIRouter()
+
+
+class RoomTypeAvailability(BaseModel):
+    name: str
+    available: int
+    total: int
 
 
 class DashboardToday(BaseModel):
@@ -21,6 +27,7 @@ class DashboardToday(BaseModel):
     availability_count: int
     total_rooms: int
     pending_balances: float
+    availability_by_type: list[RoomTypeAvailability]
 
 
 @router.get("/today", response_model=DashboardToday)
@@ -74,6 +81,46 @@ async def get_today(session: AsyncSession = Depends(get_session)):
     total_rooms = (await session.execute(total_rooms_stmt)).scalar() or 0
     availability_count = max(0, total_rooms - occupancy_count)
 
+    # Per-type totals
+    type_totals_stmt = (
+        select(RoomType.name, func.count(Room.id).label("total"))
+        .join(Room, Room.room_type_id == RoomType.id)
+        .where(Room.is_active == True)  # noqa: E712
+        .group_by(RoomType.id, RoomType.name)
+        .order_by(RoomType.name)
+    )
+    type_totals = {
+        row.name: row.total
+        for row in (await session.execute(type_totals_stmt)).all()
+    }
+
+    # Per-type occupied
+    type_occupied_stmt = (
+        select(RoomType.name, func.count(func.distinct(Booking.room_id)).label("occupied"))
+        .join(Room, Room.room_type_id == RoomType.id)
+        .join(Booking, Booking.room_id == Room.id)
+        .where(
+            Room.is_active == True,  # noqa: E712
+            Booking.start_datetime <= now_utc,
+            Booking.end_datetime >= now_utc,
+            Booking.status == "occupied",
+        )
+        .group_by(RoomType.id, RoomType.name)
+    )
+    type_occupied = {
+        row.name: row.occupied
+        for row in (await session.execute(type_occupied_stmt)).all()
+    }
+
+    availability_by_type = [
+        RoomTypeAvailability(
+            name=name,
+            available=max(0, total - type_occupied.get(name, 0)),
+            total=total,
+        )
+        for name, total in sorted(type_totals.items())
+    ]
+
     # Pending balances: for each group with active bookings, sum rates minus payments
     # First get group_ids that have at least one active booking
     active_group_ids_stmt = (
@@ -110,4 +157,5 @@ async def get_today(session: AsyncSession = Depends(get_session)):
         availability_count=availability_count,
         total_rooms=total_rooms,
         pending_balances=round(pending_balances, 2),
+        availability_by_type=availability_by_type,
     )
