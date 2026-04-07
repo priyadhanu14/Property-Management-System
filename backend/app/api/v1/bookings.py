@@ -389,6 +389,74 @@ async def update_booking(
     return booking_to_out(booking, paid, grate)
 
 
+class AddRoomRequest(BaseModel):
+    room_id: int
+    start_datetime: datetime
+    end_datetime: datetime
+    rate_snapshot: float | None = None
+
+
+@router.post("/groups/{group_id}/rooms", response_model=BookingOut, status_code=201)
+async def add_room_to_group(
+    group_id: int,
+    body: AddRoomRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Add a new room booking to an existing booking group."""
+    group = await session.get(BookingGroup, group_id)
+    if not group:
+        raise HTTPException(404, "Booking group not found")
+
+    room = await session.get(Room, body.room_id)
+    if not room:
+        raise HTTPException(400, f"Room id {body.room_id} not found")
+    if not room.is_active:
+        raise HTTPException(400, f"Room '{room.unit_code}' is inactive")
+    if body.start_datetime >= body.end_datetime:
+        raise HTTPException(400, "start_datetime must be before end_datetime")
+
+    start_utc = to_utc(body.start_datetime)
+    end_utc = to_utc(body.end_datetime)
+
+    overlap_stmt = select(Booking).where(
+        Booking.room_id == body.room_id,
+        Booking.status != "cancelled",
+        Booking.start_datetime < end_utc,
+        Booking.end_datetime > start_utc,
+    )
+    conflict = (await session.execute(overlap_stmt)).scalars().first()
+    if conflict:
+        fmt = lambda dt: to_utc(dt).strftime("%d %b %I:%M %p")
+        raise HTTPException(
+            400,
+            f"Room '{room.unit_code}' is already booked from "
+            f"{fmt(conflict.start_datetime)} to {fmt(conflict.end_datetime)}",
+        )
+
+    booking = Booking(
+        group_id=group_id,
+        room_id=body.room_id,
+        start_datetime=body.start_datetime,
+        end_datetime=body.end_datetime,
+        status="reserved",
+        rate_snapshot=body.rate_snapshot,
+    )
+    session.add(booking)
+
+    try:
+        await session.flush()
+    except IntegrityError as e:
+        await session.rollback()
+        if "no_overlap" in str(e).lower() or "exclusion" in str(e).lower():
+            raise HTTPException(400, "Room is already booked for the selected time period.") from None
+        raise
+
+    loaded = await load_booking(session, booking.id)
+    paid = await get_group_paid(session, group_id)
+    grate = await get_group_total_rate(session, group_id)
+    return booking_to_out(loaded, paid, grate)
+
+
 @router.put("/groups/{group_id}", response_model=BookingGroupOut)
 async def update_booking_group(
     group_id: int,

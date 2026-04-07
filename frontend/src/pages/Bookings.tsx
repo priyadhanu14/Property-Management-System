@@ -16,15 +16,19 @@ import {
   Search,
   IndianRupee,
   Pencil,
+  BedDouble,
+  CalendarClock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { BookingResponse, Room } from '@/types/rooms'
 
 type SlotType = 'morning' | 'evening'
 
+const ROOM_RATES: Record<string, number> = { '2BHK': 5000, '3BHK': 8000 }
+
 interface SelectedRoom {
   roomId: number
-  rate: string
+  rate: number
 }
 
 function computeSlotTimes(checkInDate: string, checkOutDate: string, slot: SlotType): { start: string; end: string } {
@@ -752,6 +756,321 @@ function EditBookingModal({
   )
 }
 
+// ---- Add Room Modal ----
+function AddRoomModal({
+  group,
+  rooms,
+  onClose,
+  onSuccess,
+}: {
+  group: BookingResponse[]
+  rooms: Room[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const first = group[0]
+  const toLocalDT = (iso: string) => {
+    const d = new Date(iso)
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
+    return d.toISOString().slice(0, 16)
+  }
+
+  const [selectedRoomIds, setSelectedRoomIds] = useState<Set<number>>(new Set())
+  const [startDT, setStartDT] = useState(toLocalDT(first.start_datetime))
+  const [endDT, setEndDT] = useState(toLocalDT(first.end_datetime))
+
+  const bookedRoomIds = new Set(group.filter((b) => b.status !== 'cancelled').map((b) => b.room_id))
+  const availableRooms = rooms.filter((r) => r.is_active && !bookedRoomIds.has(r.id))
+
+  const numNights = (() => {
+    if (!startDT || !endDT) return 1
+    const diff = new Date(endDT).getTime() - new Date(startDT).getTime()
+    const days = Math.round(diff / (1000 * 60 * 60 * 24))
+    return days > 0 ? days : 1
+  })()
+
+  const total = Array.from(selectedRoomIds).reduce((sum, id) => {
+    const room = availableRooms.find((r) => r.id === id)
+    return sum + (ROOM_RATES[room?.room_type ?? ''] ?? 0) * numNights
+  }, 0)
+
+  function toggleRoomSelection(roomId: number) {
+    setSelectedRoomIds((prev) => {
+      const next = new Set(prev)
+      next.has(roomId) ? next.delete(roomId) : next.add(roomId)
+      return next
+    })
+  }
+
+  const queryClient = useQueryClient()
+  const addRoom = useMutation({
+    mutationFn: (body: unknown) => api.post(`/bookings/groups/${first.group_id}/rooms`, body),
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (selectedRoomIds.size === 0) { toast.error('Select at least one room'); return }
+    const startISO = new Date(startDT).toISOString()
+    const endISO = new Date(endDT).toISOString()
+    try {
+      await Promise.all(
+        Array.from(selectedRoomIds).map((roomId) => {
+          const room = availableRooms.find((r) => r.id === roomId)
+          const rate = (ROOM_RATES[room?.room_type ?? ''] ?? 0) * numNights
+          return addRoom.mutateAsync({ room_id: roomId, start_datetime: startISO, end_datetime: endISO, rate_snapshot: rate })
+        })
+      )
+      queryClient.invalidateQueries({ queryKey: ['bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-today'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['monthly-summary'] })
+      toast.success(`${selectedRoomIds.size} room${selectedRoomIds.size > 1 ? 's' : ''} added`)
+      onSuccess()
+      onClose()
+    } catch {
+      // errors already toasted per mutation
+    }
+  }
+
+  const inputCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <Card className="w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">Add Room to Booking</CardTitle>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="size-4" /></Button>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="rounded-md border p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Guest</span>
+                <span className="font-medium">{first.guest_name}</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                Select Rooms * ({selectedRoomIds.size} selected)
+              </label>
+              {availableRooms.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No other rooms available to add.</p>
+              ) : (
+                <div className="space-y-2 rounded-md border p-3">
+                  {availableRooms.map((room) => (
+                    <div key={room.id} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id={`add-room-${room.id}`}
+                          checked={selectedRoomIds.has(room.id)}
+                          onChange={() => toggleRoomSelection(room.id)}
+                          className="size-4 rounded border-input accent-primary"
+                        />
+                        <label htmlFor={`add-room-${room.id}`} className="text-sm cursor-pointer">
+                          <span className="font-medium">{room.unit_code}</span>
+                          <span className="ml-1.5 text-muted-foreground">({room.room_type})</span>
+                        </label>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{formatINR(ROOM_RATES[room.room_type] ?? 0)}/night</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Check-in *</label>
+                <input type="datetime-local" required className={inputCls} value={startDT} onChange={(e) => setStartDT(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Check-out *</label>
+                <input type="datetime-local" required className={inputCls} value={endDT} onChange={(e) => setEndDT(e.target.value)} />
+              </div>
+            </div>
+
+            {selectedRoomIds.size > 0 && (
+              <div className="rounded-md bg-muted/50 px-3 py-2 text-sm flex justify-between items-center">
+                <span className="text-muted-foreground">
+                  Total ({selectedRoomIds.size} room{selectedRoomIds.size > 1 ? 's' : ''}{numNights > 1 ? `, ${numNights} days` : ''})
+                </span>
+                <span className="font-bold text-base">{formatINR(total)}</span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+              <Button type="submit" disabled={addRoom.isPending || selectedRoomIds.size === 0 || availableRooms.length === 0}>
+                {addRoom.isPending ? 'Adding...' : 'Add Room'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// ---- Extend Stay Modal ----
+function ExtendStayModal({
+  group,
+  rooms,
+  onClose,
+  onSuccess,
+}: {
+  group: BookingResponse[]
+  rooms: Room[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const activeBookings = group.filter((b) => b.status !== 'cancelled' && b.status !== 'checked_out')
+  const first = activeBookings[0] ?? group[0]
+
+  const toLocalDT = (iso: string) => {
+    const d = new Date(iso)
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
+    return d.toISOString().slice(0, 16)
+  }
+
+  const currentEndDT = toLocalDT(first.end_datetime)
+  const [scope, setScope] = useState<'all' | number>('all')
+  const [newEndDate, setNewEndDate] = useState(currentEndDT.slice(0, 10))
+  const [newEndTime, setNewEndTime] = useState(currentEndDT.slice(11, 16))
+  const newEndDT = `${newEndDate}T${newEndTime}`
+
+  const queryClient = useQueryClient()
+  const extendMutation = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: unknown }) => api.put(`/bookings/${id}`, body),
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const newEndISO = new Date(newEndDT).toISOString()
+    const targets = scope === 'all' ? activeBookings : activeBookings.filter((b) => b.id === scope)
+    try {
+      await Promise.all(
+        targets.map((b) => {
+          const room = rooms.find((r) => r.id === b.room_id)
+          const ratePerNight = ROOM_RATES[room?.room_type ?? ''] ?? 0
+          const newNights = Math.max(1, Math.round(
+            (new Date(newEndDT).getTime() - new Date(b.start_datetime).getTime()) / (1000 * 60 * 60 * 24)
+          ))
+          return extendMutation.mutateAsync({ id: b.id, body: { end_datetime: newEndISO, rate_snapshot: ratePerNight * newNights } })
+        })
+      )
+      queryClient.invalidateQueries({ queryKey: ['bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-today'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['monthly-summary'] })
+      toast.success('Stay extended')
+      onSuccess()
+      onClose()
+    } catch {
+      // errors already toasted per mutation
+    }
+  }
+
+  const targets = scope === 'all' ? activeBookings : activeBookings.filter((b) => b.id === scope)
+  const previewTotal = newEndDT > currentEndDT
+    ? targets.reduce((sum, b) => {
+        const room = rooms.find((r) => r.id === b.room_id)
+        const ratePerNight = ROOM_RATES[room?.room_type ?? ''] ?? 0
+        const newNights = Math.max(1, Math.round(
+          (new Date(newEndDT).getTime() - new Date(b.start_datetime).getTime()) / (1000 * 60 * 60 * 24)
+        ))
+        return sum + ratePerNight * newNights
+      }, 0)
+    : 0
+
+  const inputCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  const selectCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <Card className="w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">Extend Stay</CardTitle>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="size-4" /></Button>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="rounded-md border p-3 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Guest</span>
+                <span className="font-medium">{first.guest_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Current checkout</span>
+                <span>{formatDateTime(first.end_datetime)}</span>
+              </div>
+            </div>
+
+            {activeBookings.length > 1 && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Extend for</label>
+                <select
+                  className={selectCls}
+                  value={scope === 'all' ? 'all' : String(scope)}
+                  onChange={(e) => setScope(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                >
+                  <option value="all">All rooms ({activeBookings.length})</option>
+                  {activeBookings.map((b) => (
+                    <option key={b.id} value={String(b.id)}>{b.unit_code}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">New Check-out *</label>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="date"
+                  required
+                  min={currentEndDT.slice(0, 10)}
+                  className={inputCls}
+                  value={newEndDate}
+                  onChange={(e) => setNewEndDate(e.target.value)}
+                  onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
+                />
+                <input
+                  type="time"
+                  required
+                  className={inputCls}
+                  value={newEndTime}
+                  onChange={(e) => setNewEndTime(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {newEndDT > currentEndDT && (
+              <div className="rounded-md bg-muted/50 px-3 py-2 text-sm flex justify-between items-center">
+                <span className="text-muted-foreground">
+                  New total ({scope === 'all' ? 'all rooms' : targets[0]?.unit_code})
+                </span>
+                <span className="font-bold text-base">{formatINR(previewTotal)}</span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+              <Button type="submit" disabled={extendMutation.isPending || newEndDT <= currentEndDT}>
+                {extendMutation.isPending ? 'Extending...' : 'Extend Stay'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 // ---- Main Bookings Page ----
 export function Bookings() {
   const queryClient = useQueryClient()
@@ -775,6 +1094,12 @@ export function Bookings() {
 
   // Edit booking state
   const [editGroup, setEditGroup] = useState<BookingResponse[] | null>(null)
+
+  // Add room state
+  const [addRoomGroup, setAddRoomGroup] = useState<BookingResponse[] | null>(null)
+
+  // Extend stay state
+  const [extendStayGroup, setExtendStayGroup] = useState<BookingResponse[] | null>(null)
 
   // Create form state
   const [formGuestName, setFormGuestName] = useState('')
@@ -895,14 +1220,10 @@ export function Bookings() {
     setFormRooms((prev) => {
       const exists = prev.find((r) => r.roomId === roomId)
       if (exists) return prev.filter((r) => r.roomId !== roomId)
-      return [...prev, { roomId, rate: '' }]
+      const room = rooms.find((r) => r.id === roomId)
+      const rate = ROOM_RATES[room?.room_type ?? ''] ?? 0
+      return [...prev, { roomId, rate }]
     })
-  }
-
-  function updateRoomRate(roomId: number, rate: string) {
-    setFormRooms((prev) =>
-      prev.map((r) => (r.roomId === roomId ? { ...r, rate } : r))
-    )
   }
 
   const numNights = (() => {
@@ -912,7 +1233,7 @@ export function Bookings() {
     return days > 0 ? days : 1
   })()
 
-  const formTotal = formRooms.reduce((sum, r) => sum + (Number(r.rate) || 0) * numNights, 0)
+  const formTotal = formRooms.reduce((sum, r) => sum + r.rate * numNights, 0)
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -932,7 +1253,7 @@ export function Bookings() {
         room_id: r.roomId,
         start_datetime: startDt,
         end_datetime: endDt,
-        rate_snapshot: r.rate ? Number(r.rate) * numNights : null,
+        rate_snapshot: r.rate * numNights,
       })),
     })
   }
@@ -1093,6 +1414,28 @@ export function Bookings() {
                           <Button
                             size="sm"
                             variant="outline"
+                            onClick={() => setAddRoomGroup(group)}
+                            title="Add room"
+                          >
+                            <BedDouble className="size-3.5" />
+                            <span className="hidden sm:inline">Add Room</span>
+                          </Button>
+                        )}
+                        {hasActive && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setExtendStayGroup(group)}
+                            title="Extend stay"
+                          >
+                            <CalendarClock className="size-3.5" />
+                            <span className="hidden sm:inline">Extend</span>
+                          </Button>
+                        )}
+                        {hasActive && (
+                          <Button
+                            size="sm"
+                            variant="outline"
                             onClick={() => setPaymentBooking(first)}
                             title="Record payment"
                           >
@@ -1116,6 +1459,9 @@ export function Bookings() {
                             {b.rate_snapshot != null && (
                               <span className="text-xs text-muted-foreground">{formatINR(b.rate_snapshot)}</span>
                             )}
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {formatDate(new Date(b.start_datetime))} → {formatDate(new Date(b.end_datetime))}
+                            </span>
                           </div>
 
                           <div className="flex shrink-0 gap-1">
@@ -1286,26 +1632,13 @@ export function Bookings() {
                               <span className="font-medium">{room.unit_code}</span>
                               <span className="ml-1.5 text-muted-foreground">({room.room_type})</span>
                             </span>
-                          </label>
-                          {selected && (
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="number"
-                                required
-                                min="0"
-                                step="1"
-                                placeholder="Rate/night"
-                                className="h-8 w-28 rounded-md border border-input bg-background px-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                value={selected.rate}
-                                onChange={(e) => updateRoomRate(room.id, e.target.value)}
-                              />
-                              {numNights > 1 && selected.rate && (
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                  × {numNights} days = {formatINR(Number(selected.rate) * numNights)}
-                                </span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatINR(ROOM_RATES[room.room_type] ?? 0)}/night
+                              {selected && numNights > 1 && (
+                                <span> × {numNights} = {formatINR((ROOM_RATES[room.room_type] ?? 0) * numNights)}</span>
                               )}
-                            </div>
-                          )}
+                            </span>
+                          </label>
                         </div>
                       )
                     })}
@@ -1374,6 +1707,26 @@ export function Bookings() {
           group={editGroup}
           onClose={() => setEditGroup(null)}
           onSuccess={() => setEditGroup(null)}
+        />
+      )}
+
+      {/* Add room modal */}
+      {addRoomGroup && (
+        <AddRoomModal
+          group={addRoomGroup}
+          rooms={rooms}
+          onClose={() => setAddRoomGroup(null)}
+          onSuccess={() => setAddRoomGroup(null)}
+        />
+      )}
+
+      {/* Extend stay modal */}
+      {extendStayGroup && (
+        <ExtendStayModal
+          group={extendStayGroup}
+          rooms={rooms}
+          onClose={() => setExtendStayGroup(null)}
+          onSuccess={() => setExtendStayGroup(null)}
         />
       )}
     </div>
