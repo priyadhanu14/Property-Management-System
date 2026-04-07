@@ -1053,7 +1053,7 @@ export function Bookings() {
                         </div>
 
                         {/* Group-level payment summary */}
-                        {first.group_total_rate > 0 && first.status !== 'cancelled' && (
+                        {first.group_total_rate > 0 && group.some((b) => b.status !== 'cancelled') && (
                           <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs pt-0.5">
                             <span className="text-muted-foreground">
                               Total: <span className="font-medium text-foreground">{formatINR(first.group_total_rate)}</span>
