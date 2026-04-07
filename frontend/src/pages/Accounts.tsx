@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
+  Pencil,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -145,6 +146,212 @@ function formatDate(iso: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Edit Payment Modal
+// ---------------------------------------------------------------------------
+
+function EditPaymentModal({
+  payment,
+  onClose,
+  onSuccess,
+}: {
+  payment: PaymentLog
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [amount, setAmount] = useState(String(payment.amount))
+  const [paymentType, setPaymentType] = useState(payment.payment_type)
+  const [paymentMode, setPaymentMode] = useState(payment.payment_mode)
+  const [paidAt, setPaidAt] = useState(() => {
+    const d = new Date(payment.paid_at)
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
+    return d.toISOString().slice(0, 16)
+  })
+  const [note, setNote] = useState(payment.note ?? '')
+
+  const update = useMutation({
+    mutationFn: (body: unknown) => api.put(`/payments/${payment.id}`, body),
+    onSuccess: () => {
+      toast.success('Payment updated')
+      onSuccess()
+      onClose()
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    update.mutate({
+      amount: Number(amount),
+      payment_type: paymentType,
+      payment_mode: paymentMode,
+      paid_at: new Date(paidAt).toISOString(),
+      note: note || null,
+    })
+  }
+
+  const inputCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  const selectCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">Edit Payment</CardTitle>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="size-4" /></Button>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 rounded-md border p-3 text-sm text-muted-foreground">
+            Guest: <span className="font-medium text-foreground">{payment.guest_name}</span>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Amount (INR) *</label>
+              <input type="number" required min="1" step="0.01" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </div>
+            <div className="grid gap-4 grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Payment Type</label>
+                <select className={selectCls} value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
+                  <option value="Advance">Advance</option>
+                  <option value="Check-in">Check-in</option>
+                  <option value="Balance">Balance</option>
+                  <option value="Refund">Refund</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Payment Mode</label>
+                <select className={selectCls} value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
+                  <option value="Cash">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="Bank">Bank Transfer</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid gap-4 grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Date *</label>
+                <input type="datetime-local" required className={inputCls} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Note</label>
+                <input type="text" placeholder="Optional" className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={update.isPending}>Cancel</Button>
+              <Button type="submit" disabled={update.isPending}>{update.isPending ? 'Saving...' : 'Save Changes'}</Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Edit Expense Modal
+// ---------------------------------------------------------------------------
+
+function EditExpenseModal({
+  expense,
+  rooms,
+  onClose,
+  onSuccess,
+}: {
+  expense: PropertyExpense
+  rooms: RoomOption[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [category, setCategory] = useState(expense.category)
+  const [amount, setAmount] = useState(String(expense.amount))
+  const [date, setDate] = useState(expense.month.slice(0, 10))
+  const [desc, setDesc] = useState(expense.description ?? '')
+  const [roomId, setRoomId] = useState<string>('')
+
+  const update = useMutation({
+    mutationFn: (body: unknown) => api.put(`/accounts/expenses/${expense.id}`, body),
+    onSuccess: () => {
+      toast.success('Expense updated')
+      onSuccess()
+      onClose()
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    update.mutate({
+      category,
+      amount: Number(amount),
+      month: date,
+      description: desc || null,
+      room_id: roomId ? Number(roomId) : null,
+    })
+  }
+
+  const inputCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  const selectCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">Edit Expense</CardTitle>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="size-4" /></Button>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Unit (leave empty for property-wide)</label>
+              <select className={selectCls} value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+                <option value="">Property-wide</option>
+                {rooms.map((r) => (
+                  <option key={r.id} value={r.id}>{r.unit_code}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Category</label>
+              <select className={selectCls} value={category} onChange={(e) => setCategory(e.target.value)}>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{CATEGORY_LABELS[c] ?? c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-4 grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Amount (INR) *</label>
+                <input type="number" required min="1" step="0.01" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Date *</label>
+                <input
+                  type="date"
+                  required
+                  className={inputCls + ' cursor-pointer'}
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  onClick={(e) => { try { (e.target as HTMLInputElement).showPicker() } catch {} }}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Description</label>
+              <input type="text" placeholder="Optional" className={inputCls} value={desc} onChange={(e) => setDesc(e.target.value)} />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={update.isPending}>Cancel</Button>
+              <Button type="submit" disabled={update.isPending}>{update.isPending ? 'Saving...' : 'Save Changes'}</Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -152,6 +359,10 @@ export function Accounts() {
   const queryClient = useQueryClient()
   const [month, setMonth] = useState(getCurrentMonth)
   const [showForm, setShowForm] = useState(false)
+
+  // Edit state
+  const [editPayment, setEditPayment] = useState<PaymentLog | null>(null)
+  const [editExpense, setEditExpense] = useState<PropertyExpense | null>(null)
 
   // Form state
   const [formRoomId, setFormRoomId] = useState<string>('')
@@ -388,7 +599,8 @@ export function Accounts() {
                     <th className="py-3 pr-4 font-medium">Rooms</th>
                     <th className="py-3 pr-4 font-medium">Check-in</th>
                     <th className="py-3 pr-4 font-medium">Date Paid</th>
-                    <th className="py-3 font-medium text-right">Amount</th>
+                    <th className="py-3 pr-4 font-medium text-right">Amount</th>
+                    <th className="py-3 font-medium" />
                   </tr>
                 </thead>
                 {customerRows.map((row, i) => (
@@ -411,6 +623,11 @@ export function Accounts() {
                               <td className="py-2 pr-4 text-muted-foreground">{j === 0 && row.startDate ? formatDate(row.startDate) : ''}</td>
                               <td className="py-2 pr-4 text-muted-foreground">{formatDate(pmt.paid_at)}</td>
                               <td className="py-2 text-right text-emerald-500 font-medium">{formatCurrency(pmt.amount)}</td>
+                              <td className="py-2 text-right">
+                                <Button variant="ghost" size="icon" className="size-7" onClick={() => setEditPayment(pmt)} title="Edit payment">
+                                  <Pencil className="size-3.5 text-muted-foreground" />
+                                </Button>
+                              </td>
                             </tr>
                           ))}
                           {row.payments.length > 1 && (
@@ -468,14 +685,25 @@ export function Accounts() {
                           {formatCurrency(e.amount)}
                         </td>
                         <td className="py-2 text-right">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7"
-                            onClick={() => deleteExpense.mutate(e.id)}
-                          >
-                            <Trash2 className="size-3.5 text-destructive" />
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7"
+                              onClick={() => setEditExpense(e)}
+                              title="Edit expense"
+                            >
+                              <Pencil className="size-3.5 text-muted-foreground" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7"
+                              onClick={() => deleteExpense.mutate(e.id)}
+                            >
+                              <Trash2 className="size-3.5 text-destructive" />
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -485,6 +713,31 @@ export function Accounts() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* ---- Edit payment modal ---- */}
+      {editPayment && (
+        <EditPaymentModal
+          payment={editPayment}
+          onClose={() => setEditPayment(null)}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['accounts-payments', month] })
+            queryClient.invalidateQueries({ queryKey: ['monthly-summary', month] })
+            queryClient.invalidateQueries({ queryKey: ['bookings'] })
+          }}
+        />
+      )}
+
+      {/* ---- Edit expense modal ---- */}
+      {editExpense && (
+        <EditExpenseModal
+          expense={editExpense}
+          rooms={rooms}
+          onClose={() => setEditExpense(null)}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['monthly-summary', month] })
+          }}
+        />
       )}
 
       {/* ---- Add expense modal/overlay ---- */}
