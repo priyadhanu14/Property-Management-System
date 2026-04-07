@@ -79,6 +79,7 @@ interface PaymentLog {
   id: number
   booking_group_id: number
   guest_name: string
+  unit_codes: string[]
   amount: number
   payment_type: string
   payment_mode: string
@@ -407,16 +408,16 @@ export function Accounts() {
 
   const customerRows = useMemo(() => {
     // Build group info from non-cancelled bookings this month
-    const groupMap = new Map<number, { guestName: string; rooms: string[]; startDate: string }>()
+    const groupMap = new Map<number, { guestName: string; rooms: Set<string>; startDate: string }>()
     for (const b of bookingsQuery.data ?? []) {
       if (b.status === 'cancelled') continue
       const row = groupMap.get(b.group_id)
       if (row) {
-        row.rooms.push(b.unit_code)
+        row.rooms.add(b.unit_code)
       } else {
         groupMap.set(b.group_id, {
           guestName: b.guest_name,
-          rooms: [b.unit_code],
+          rooms: new Set([b.unit_code]),
           startDate: b.start_datetime,
         })
       }
@@ -427,9 +428,16 @@ export function Accounts() {
       const arr = pmtMap.get(p.booking_group_id)
       if (arr) arr.push(p)
       else pmtMap.set(p.booking_group_id, [p])
-      // Include payment groups not in this month's bookings
-      if (!groupMap.has(p.booking_group_id)) {
-        groupMap.set(p.booking_group_id, { guestName: p.guest_name, rooms: [], startDate: '' })
+      // Include payment groups not in this month's bookings, and merge unit_codes from payments
+      const existing = groupMap.get(p.booking_group_id)
+      if (existing) {
+        for (const code of p.unit_codes ?? []) existing.rooms.add(code)
+      } else {
+        groupMap.set(p.booking_group_id, {
+          guestName: p.guest_name,
+          rooms: new Set(p.unit_codes ?? []),
+          startDate: '',
+        })
       }
     }
     return Array.from(groupMap.entries())
@@ -437,7 +445,13 @@ export function Accounts() {
         const pmts = (pmtMap.get(groupId) ?? []).sort(
           (a, b) => new Date(a.paid_at).getTime() - new Date(b.paid_at).getTime()
         )
-        return { ...info, payments: pmts, totalPaid: pmts.reduce((s, p) => s + p.amount, 0) }
+        return {
+          guestName: info.guestName,
+          rooms: Array.from(info.rooms).sort(),
+          startDate: info.startDate,
+          payments: pmts,
+          totalPaid: pmts.reduce((s, p) => s + p.amount, 0),
+        }
       })
       .sort((a, b) =>
         a.startDate && b.startDate
@@ -654,47 +668,40 @@ export function Accounts() {
           <CardHeader>
             <CardTitle className="text-base">Expenses</CardTitle>
           </CardHeader>
-          <CardContent>
-            {summary.property_wide_expenses.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No property-wide expenses this month.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="py-2 pr-4 font-medium">Category</th>
-                      <th className="py-2 pr-4 font-medium">Description</th>
-                      <th className="py-2 pr-4 font-medium">Date Paid</th>
-                      <th className="py-2 pr-4 font-medium text-right">Amount</th>
-                      <th className="py-2 font-medium" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.property_wide_expenses.map((e) => (
-                      <tr key={e.id} className="border-b last:border-0">
-                        <td className="py-2 pr-4 font-medium">
-                          {CATEGORY_LABELS[e.category] ?? e.category}
-                        </td>
-                        <td className="py-2 pr-4 text-muted-foreground">
-                          {e.description ?? '—'}
-                        </td>
-                        <td className="py-2 pr-4 text-muted-foreground">
-                          {formatDate(e.month)}
-                        </td>
-                        <td className="py-2 pr-4 text-right font-semibold text-red-500">
-                          {formatCurrency(e.amount)}
-                        </td>
-                        <td className="py-2 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-7"
-                              onClick={() => setEditExpense(e)}
-                              title="Edit expense"
-                            >
-                              <Pencil className="size-3.5 text-muted-foreground" />
-                            </Button>
+          <CardContent className="space-y-6">
+            {/* Property-wide expenses */}
+            <div>
+              <h3 className="text-sm font-semibold text-muted-foreground mb-2">Property-wide</h3>
+              {summary.property_wide_expenses.length === 0 ? (
+                <p className="text-muted-foreground text-sm">No property-wide expenses this month.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 pr-4 font-medium">Category</th>
+                        <th className="py-2 pr-4 font-medium">Description</th>
+                        <th className="py-2 pr-4 font-medium">Date Paid</th>
+                        <th className="py-2 pr-4 font-medium text-right">Amount</th>
+                        <th className="py-2 font-medium" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summary.property_wide_expenses.map((e) => (
+                        <tr key={e.id} className="border-b last:border-0">
+                          <td className="py-2 pr-4 font-medium">
+                            {CATEGORY_LABELS[e.category] ?? e.category}
+                          </td>
+                          <td className="py-2 pr-4 text-muted-foreground">
+                            {e.description ?? '—'}
+                          </td>
+                          <td className="py-2 pr-4 text-muted-foreground">
+                            {formatDate(e.month)}
+                          </td>
+                          <td className="py-2 pr-4 text-right font-semibold text-red-500">
+                            {formatCurrency(e.amount)}
+                          </td>
+                          <td className="py-2 text-right">
                             <Button
                               variant="ghost"
                               size="icon"
@@ -703,14 +710,64 @@ export function Accounts() {
                             >
                               <Trash2 className="size-3.5 text-destructive" />
                             </Button>
-                          </div>
-                        </td>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Unit-wise expenses */}
+            <div>
+              <h3 className="text-sm font-semibold text-muted-foreground mb-2">Unit-wise</h3>
+              {summary.units.filter((u) => u.expenses.length > 0).length === 0 ? (
+                <p className="text-muted-foreground text-sm">No unit-wise expenses this month.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 pr-4 font-medium">Unit</th>
+                        <th className="py-2 pr-4 font-medium">Category</th>
+                        <th className="py-2 pr-4 font-medium text-right">Amount</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {summary.units
+                        .filter((u) => u.expenses.length > 0)
+                        .map((unit) => (
+                          <Fragment key={unit.room_id}>
+                            {unit.expenses.map((exp, j) => (
+                              <tr key={`${unit.room_id}-${exp.category}`} className="border-b last:border-0">
+                                <td className="py-2 pr-4 font-medium">
+                                  {j === 0 ? unit.unit_code : ''}
+                                </td>
+                                <td className="py-2 pr-4 text-muted-foreground">
+                                  {CATEGORY_LABELS[exp.category] ?? exp.category}
+                                </td>
+                                <td className="py-2 pr-4 text-right font-semibold text-red-500">
+                                  {formatCurrency(exp.amount)}
+                                </td>
+                              </tr>
+                            ))}
+                            {unit.expenses.length > 1 && (
+                              <tr className="border-b bg-muted/30">
+                                <td className="py-2 pr-4 font-medium">{unit.unit_code}</td>
+                                <td className="py-2 pr-4 text-xs font-medium text-muted-foreground text-right">Subtotal</td>
+                                <td className="py-2 pr-4 text-right font-bold text-red-500">
+                                  {formatCurrency(unit.total_expenses)}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

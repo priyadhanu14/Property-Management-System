@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_session
 from app.models.payment import Payment
 from app.models.booking import Booking, BookingGroup
+from app.models.room import Room
 
 router = APIRouter()
 
@@ -45,6 +46,7 @@ class PaymentOut(BaseModel):
     booking_group_id: int
     booking_id: int | None
     guest_name: str
+    unit_codes: list[str]
     amount: float
     payment_type: str
     payment_mode: str
@@ -67,12 +69,26 @@ class PaymentSummary(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _payment_load_options():
+    """Eager-load options for payment queries (group + bookings + rooms)."""
+    return selectinload(Payment.booking_group).selectinload(
+        BookingGroup.bookings
+    ).selectinload(Booking.room)
+
+
 def payment_to_out(p: Payment) -> PaymentOut:
+    unit_codes: list[str] = []
+    if p.booking_group:
+        for b in (p.booking_group.bookings or []):
+            if b.status != "cancelled" and b.room and b.room.unit_code not in unit_codes:
+                unit_codes.append(b.room.unit_code)
+    unit_codes.sort()
     return PaymentOut(
         id=p.id,
         booking_group_id=p.booking_group_id,
         booking_id=p.booking_id,
         guest_name=p.booking_group.guest_name if p.booking_group else "",
+        unit_codes=unit_codes,
         amount=float(p.amount),
         payment_type=p.payment_type,
         payment_mode=p.payment_mode,
@@ -122,7 +138,7 @@ async def record_payment(
     stmt = (
         select(Payment)
         .where(Payment.id == payment.id)
-        .options(selectinload(Payment.booking_group))
+        .options(_payment_load_options())
     )
     loaded = (await session.execute(stmt)).scalar_one()
     return payment_to_out(loaded)
@@ -142,7 +158,7 @@ async def list_payments(
     """List payments with optional filters."""
     stmt = (
         select(Payment)
-        .options(selectinload(Payment.booking_group))
+        .options(_payment_load_options())
         .order_by(Payment.paid_at.desc())
     )
 
@@ -219,7 +235,7 @@ async def get_payment(
     stmt = (
         select(Payment)
         .where(Payment.id == payment_id)
-        .options(selectinload(Payment.booking_group))
+        .options(_payment_load_options())
     )
     payment = (await session.execute(stmt)).scalar_one_or_none()
     if not payment:
@@ -237,7 +253,7 @@ async def update_payment(
     stmt = (
         select(Payment)
         .where(Payment.id == payment_id)
-        .options(selectinload(Payment.booking_group))
+        .options(_payment_load_options())
     )
     payment = (await session.execute(stmt)).scalar_one_or_none()
     if not payment:
@@ -261,7 +277,7 @@ async def update_payment(
     stmt2 = (
         select(Payment)
         .where(Payment.id == payment_id)
-        .options(selectinload(Payment.booking_group))
+        .options(_payment_load_options())
     )
     loaded = (await session.execute(stmt2)).scalar_one()
     return payment_to_out(loaded)
