@@ -15,6 +15,7 @@ import {
   XCircle,
   Search,
   IndianRupee,
+  Pencil,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { BookingResponse, Room } from '@/types/rooms'
@@ -79,6 +80,94 @@ function formatINR(n: number | null | undefined): string {
   }).format(n)
 }
 
+interface PaymentLog {
+  id: number
+  booking_group_id: number
+  booking_id: number | null
+  guest_name: string
+  amount: number
+  payment_type: string
+  payment_mode: string
+  paid_at: string
+  note: string | null
+}
+
+// ---- Inline Edit Payment Row ----
+function EditPaymentRow({
+  payment,
+  onSaved,
+  onCancel,
+}: {
+  payment: PaymentLog
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [amount, setAmount] = useState(String(payment.amount))
+  const [paymentType, setPaymentType] = useState(payment.payment_type)
+  const [paymentMode, setPaymentMode] = useState(payment.payment_mode)
+  const [paidAt, setPaidAt] = useState(() => {
+    const d = new Date(payment.paid_at)
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
+    return d.toISOString().slice(0, 16)
+  })
+  const [note, setNote] = useState(payment.note ?? '')
+
+  const update = useMutation({
+    mutationFn: (body: unknown) => api.put(`/payments/${payment.id}`, body),
+    onSuccess: () => { toast.success('Payment updated'); onSaved() },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const selectCls = 'h-8 rounded-md border border-input bg-background px-2 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  const inputCls = 'h-8 rounded-md border border-input bg-background px-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+  return (
+    <div className="rounded-md border border-primary/30 bg-muted/40 p-2 space-y-2 text-xs">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <label className="text-muted-foreground">Amount</label>
+          <input type="number" min="1" step="1" className={`${inputCls} w-full`} value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="text-muted-foreground">Date</label>
+          <input type="datetime-local" className={`${inputCls} w-full`} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <label className="text-muted-foreground">Type</label>
+          <select className={`${selectCls} w-full`} value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
+            <option value="Advance">Advance</option>
+            <option value="Check-in">Check-in</option>
+            <option value="Balance">Balance</option>
+            <option value="Refund">Refund</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-muted-foreground">Mode</label>
+          <select className={`${selectCls} w-full`} value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
+            <option value="Cash">Cash</option>
+            <option value="UPI">UPI</option>
+            <option value="Bank">Bank Transfer</option>
+          </select>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <label className="text-muted-foreground">Note</label>
+        <input type="text" placeholder="Optional" className={`${inputCls} w-full`} value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
+      <div className="flex justify-end gap-1.5">
+        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onCancel} disabled={update.isPending}>Cancel</Button>
+        <Button size="sm" className="h-7 text-xs" disabled={update.isPending}
+          onClick={() => update.mutate({ amount: Number(amount), payment_type: paymentType, payment_mode: paymentMode, paid_at: new Date(paidAt).toISOString(), note: note || null })}
+        >
+          {update.isPending ? 'Saving...' : 'Save'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 // ---- Record Payment Modal ----
 function RecordPaymentModal({
   booking,
@@ -89,6 +178,7 @@ function RecordPaymentModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const queryClient = useQueryClient()
   const [amount, setAmount] = useState(booking.balance > 0 ? String(booking.balance) : '')
   const [paymentType, setPaymentType] = useState('Advance')
   const [paymentMode, setPaymentMode] = useState('Cash')
@@ -98,11 +188,28 @@ function RecordPaymentModal({
     return now.toISOString().slice(0, 16)
   })
   const [note, setNote] = useState('')
+  const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null)
+
+  const paymentsQuery = useQuery({
+    queryKey: ['group-payments', booking.group_id],
+    queryFn: () => api.get<PaymentLog[]>(`/payments?booking_group_id=${booking.group_id}&limit=100`),
+    staleTime: 5_000,
+  })
+  const existingPayments = paymentsQuery.data ?? []
+
+  function invalidateAll() {
+    queryClient.invalidateQueries({ queryKey: ['bookings'] })
+    queryClient.invalidateQueries({ queryKey: ['group-payments', booking.group_id] })
+    queryClient.invalidateQueries({ queryKey: ['dashboard-today'] })
+    queryClient.invalidateQueries({ queryKey: ['accounts-payments'] })
+    queryClient.invalidateQueries({ queryKey: ['monthly-summary'] })
+  }
 
   const recordPayment = useMutation({
     mutationFn: (body: unknown) => api.post('/payments', body),
     onSuccess: () => {
       toast.success('Payment recorded')
+      invalidateAll()
       onSuccess()
       onClose()
     },
@@ -122,17 +229,21 @@ function RecordPaymentModal({
     })
   }
 
+  const inputCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  const selectCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+      <Card className="w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">Record Payment</CardTitle>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="size-4" />
           </Button>
         </CardHeader>
-        <CardContent>
-          <div className="mb-4 rounded-md border p-3 text-sm space-y-1">
+        <CardContent className="space-y-4">
+          {/* Summary */}
+          <div className="rounded-md border p-3 text-sm space-y-1">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Guest</span>
               <span className="font-medium">{booking.guest_name}</span>
@@ -163,28 +274,52 @@ function RecordPaymentModal({
             </div>
           </div>
 
+          {/* Existing payments with edit */}
+          {existingPayments.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Payment History</p>
+              <div className="space-y-1.5">
+                {existingPayments.map((pmt) =>
+                  editingPaymentId === pmt.id ? (
+                    <EditPaymentRow
+                      key={pmt.id}
+                      payment={pmt}
+                      onSaved={() => { invalidateAll(); setEditingPaymentId(null) }}
+                      onCancel={() => setEditingPaymentId(null)}
+                    />
+                  ) : (
+                    <div key={pmt.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">{formatINR(pmt.amount)}</span>
+                          <span className="text-muted-foreground">{pmt.payment_type} · {pmt.payment_mode}</span>
+                        </div>
+                        <div className="text-muted-foreground">
+                          {new Date(pmt.paid_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          {pmt.note && <span> · {pmt.note}</span>}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={() => setEditingPaymentId(pmt.id)} title="Edit payment">
+                        <Pencil className="size-3.5 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* New payment form */}
           <form onSubmit={handleSubmit} className="space-y-4">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">New Payment</p>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Amount (INR) *</label>
-              <input
-                type="number"
-                required
-                min="1"
-                step="1"
-                placeholder="Enter amount"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
+              <input type="number" required min="1" step="1" placeholder="Enter amount" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} />
             </div>
             <div className="grid gap-4 grid-cols-2">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Payment Type</label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={paymentType}
-                  onChange={(e) => setPaymentType(e.target.value)}
-                >
+                <select className={selectCls} value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
                   <option value="Advance">Advance</option>
                   <option value="Check-in">Check-in</option>
                   <option value="Balance">Balance</option>
@@ -193,11 +328,7 @@ function RecordPaymentModal({
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Payment Mode</label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={paymentMode}
-                  onChange={(e) => setPaymentMode(e.target.value)}
-                >
+                <select className={selectCls} value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
                   <option value="Cash">Cash</option>
                   <option value="UPI">UPI</option>
                   <option value="Bank">Bank Transfer</option>
@@ -207,30 +338,15 @@ function RecordPaymentModal({
             <div className="grid gap-4 grid-cols-2">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Payment Date *</label>
-                <input
-                  type="datetime-local"
-                  required
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={paidAt}
-                  onChange={(e) => setPaidAt(e.target.value)}
-                />
+                <input type="datetime-local" required className={inputCls} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Note (optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Token amount"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
+                <input type="text" placeholder="e.g. Token amount" className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} />
               </div>
             </div>
-
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
+              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
               <Button type="submit" disabled={recordPayment.isPending}>
                 {recordPayment.isPending ? 'Recording...' : 'Record Payment'}
               </Button>
@@ -380,6 +496,262 @@ function CancelConfirmModal({
   )
 }
 
+// ---- Edit Booking Modal ----
+function EditBookingModal({
+  group,
+  onClose,
+  onSuccess,
+}: {
+  group: BookingResponse[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const queryClient = useQueryClient()
+  const first = group[0]
+
+  const inputCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  const selectCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+  // --- Booking fields ---
+  const [guestName, setGuestName] = useState(first.guest_name)
+  const [phone, setPhone] = useState(first.phone)
+  const [eventType, setEventType] = useState(first.event_type ?? '')
+
+  const toLocalDT = (iso: string) => {
+    const d = new Date(iso)
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
+    return d.toISOString().slice(0, 16)
+  }
+  const [startDT, setStartDT] = useState(toLocalDT(first.start_datetime))
+  const [endDT, setEndDT] = useState(toLocalDT(first.end_datetime))
+
+  // --- Payment fields (for the first/only existing payment, if any) ---
+  const paymentsQuery = useQuery({
+    queryKey: ['group-payments', first.group_id],
+    queryFn: () => api.get<PaymentLog[]>(`/payments?booking_group_id=${first.group_id}&limit=100`),
+    staleTime: 5_000,
+  })
+  const payments = paymentsQuery.data ?? []
+
+  // Track per-payment edit state: map of paymentId → edited fields
+  const [paymentEdits, setPaymentEdits] = useState<Record<number, {
+    amount: string
+    payment_type: string
+    payment_mode: string
+    paid_at: string
+    note: string
+  }>>({})
+
+  // Initialise edit state once payments load
+  const initialised = paymentsQuery.isSuccess
+  const [initialised_done, setInitialisedDone] = useState(false)
+  if (initialised && !initialised_done && payments.length > 0) {
+    const edits: typeof paymentEdits = {}
+    for (const p of payments) {
+      const d = new Date(p.paid_at)
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
+      edits[p.id] = {
+        amount: String(p.amount),
+        payment_type: p.payment_type,
+        payment_mode: p.payment_mode,
+        paid_at: d.toISOString().slice(0, 16),
+        note: p.note ?? '',
+      }
+    }
+    setPaymentEdits(edits)
+    setInitialisedDone(true)
+  }
+
+  function updateEdit(id: number, field: string, value: string) {
+    setPaymentEdits((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }))
+  }
+
+  // --- Mutations ---
+  const updateGroup = useMutation({
+    mutationFn: (body: unknown) => api.put(`/bookings/groups/${first.group_id}`, body),
+    onError: (err: Error) => toast.error(err.message),
+  })
+  const updateBooking = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: unknown }) => api.put(`/bookings/${id}`, body),
+    onError: (err: Error) => toast.error(err.message),
+  })
+  const updatePayment = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: unknown }) => api.put(`/payments/${id}`, body),
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  function invalidateAll() {
+    queryClient.invalidateQueries({ queryKey: ['bookings'] })
+    queryClient.invalidateQueries({ queryKey: ['calendar-bookings'] })
+    queryClient.invalidateQueries({ queryKey: ['dashboard-today'] })
+    queryClient.invalidateQueries({ queryKey: ['accounts-bookings'] })
+    queryClient.invalidateQueries({ queryKey: ['accounts-payments'] })
+    queryClient.invalidateQueries({ queryKey: ['monthly-summary'] })
+    queryClient.invalidateQueries({ queryKey: ['group-payments', first.group_id] })
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    try {
+      await updateGroup.mutateAsync({ guest_name: guestName, phone, event_type: eventType || null })
+      const startISO = new Date(startDT).toISOString()
+      const endISO = new Date(endDT).toISOString()
+      await Promise.all(group.map((b) =>
+        updateBooking.mutateAsync({ id: b.id, body: { start_datetime: startISO, end_datetime: endISO } })
+      ))
+      // Save all edited payments
+      await Promise.all(payments.map((p) => {
+        const ed = paymentEdits[p.id]
+        if (!ed) return Promise.resolve()
+        return updatePayment.mutateAsync({
+          id: p.id,
+          body: {
+            amount: Number(ed.amount),
+            payment_type: ed.payment_type,
+            payment_mode: ed.payment_mode,
+            paid_at: new Date(ed.paid_at).toISOString(),
+            note: ed.note || null,
+          },
+        })
+      }))
+      invalidateAll()
+      toast.success('Booking updated')
+      onSuccess()
+      onClose()
+    } catch {
+      // errors already toasted per mutation
+    }
+  }
+
+  const isPending = updateGroup.isPending || updateBooking.isPending || updatePayment.isPending
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <Card className="w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">Edit Booking</CardTitle>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="size-4" /></Button>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+
+            {/* ── Booking details ── */}
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Booking Details</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Guest Name *</label>
+                <input type="text" required className={inputCls} value={guestName} onChange={(e) => setGuestName(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Phone *</label>
+                <input type="tel" required className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Event Type</label>
+              <input type="text" placeholder="e.g. Marriage, Office" className={inputCls} value={eventType} onChange={(e) => setEventType(e.target.value)} />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Check-in *</label>
+                <input type="datetime-local" required className={inputCls} value={startDT} onChange={(e) => setStartDT(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Check-out *</label>
+                <input type="datetime-local" required className={inputCls} value={endDT} onChange={(e) => setEndDT(e.target.value)} />
+              </div>
+            </div>
+
+            {/* ── Payment details ── */}
+            {payments.length > 0 && (
+              <>
+                <div className="border-t pt-4">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                    Payment{payments.length > 1 ? 's' : ''}
+                  </p>
+
+                  {/* Balance summary */}
+                  <div className="rounded-md border p-3 text-sm space-y-1 mb-4">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Group Total</span>
+                      <span className="font-medium">{formatINR(first.group_total_rate)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total Paid</span>
+                      <span className="font-medium text-emerald-600 dark:text-emerald-400">{formatINR(first.total_paid)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Balance</span>
+                      <span className={cn('font-semibold', first.balance > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400')}>
+                        {formatINR(first.balance)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {payments.map((p, idx) => {
+                      const ed = paymentEdits[p.id]
+                      if (!ed) return null
+                      return (
+                        <div key={p.id} className="space-y-3 rounded-md border p-3">
+                          {payments.length > 1 && (
+                            <p className="text-xs text-muted-foreground font-medium">Payment #{idx + 1}</p>
+                          )}
+                          <div className="space-y-1.5">
+                            <label className="text-sm font-medium">Amount (INR) *</label>
+                            <input type="number" required min="1" step="1" className={inputCls}
+                              value={ed.amount} onChange={(e) => updateEdit(p.id, 'amount', e.target.value)} />
+                          </div>
+                          <div className="grid gap-4 grid-cols-2">
+                            <div className="space-y-1.5">
+                              <label className="text-sm font-medium">Payment Type</label>
+                              <select className={selectCls} value={ed.payment_type} onChange={(e) => updateEdit(p.id, 'payment_type', e.target.value)}>
+                                <option value="Advance">Advance</option>
+                                <option value="Check-in">Check-in</option>
+                                <option value="Balance">Balance</option>
+                                <option value="Refund">Refund</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-sm font-medium">Payment Mode</label>
+                              <select className={selectCls} value={ed.payment_mode} onChange={(e) => updateEdit(p.id, 'payment_mode', e.target.value)}>
+                                <option value="Cash">Cash</option>
+                                <option value="UPI">UPI</option>
+                                <option value="Bank">Bank Transfer</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="grid gap-4 grid-cols-2">
+                            <div className="space-y-1.5">
+                              <label className="text-sm font-medium">Payment Date *</label>
+                              <input type="datetime-local" required className={inputCls}
+                                value={ed.paid_at} onChange={(e) => updateEdit(p.id, 'paid_at', e.target.value)} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-sm font-medium">Note (optional)</label>
+                              <input type="text" placeholder="e.g. Token amount" className={inputCls}
+                                value={ed.note} onChange={(e) => updateEdit(p.id, 'note', e.target.value)} />
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
+              <Button type="submit" disabled={isPending}>{isPending ? 'Saving...' : 'Save Changes'}</Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 // ---- Main Bookings Page ----
 export function Bookings() {
   const queryClient = useQueryClient()
@@ -400,6 +772,9 @@ export function Bookings() {
 
   // Cancel confirmation state
   const [cancelBooking, setCancelBooking] = useState<BookingResponse | null>(null)
+
+  // Edit booking state
+  const [editGroup, setEditGroup] = useState<BookingResponse[] | null>(null)
 
   // Create form state
   const [formGuestName, setFormGuestName] = useState('')
@@ -707,6 +1082,17 @@ export function Bookings() {
                           <Button
                             size="sm"
                             variant="outline"
+                            onClick={() => setEditGroup(group)}
+                            title="Edit booking"
+                          >
+                            <Pencil className="size-3.5" />
+                            <span className="hidden sm:inline">Edit</span>
+                          </Button>
+                        )}
+                        {hasActive && (
+                          <Button
+                            size="sm"
+                            variant="outline"
                             onClick={() => setPaymentBooking(first)}
                             title="Record payment"
                           >
@@ -979,6 +1365,15 @@ export function Bookings() {
           onClose={() => setCancelBooking(null)}
           onConfirm={() => cancelMutation.mutate(cancelBooking.id)}
           isPending={cancelMutation.isPending}
+        />
+      )}
+
+      {/* Edit booking modal */}
+      {editGroup && (
+        <EditBookingModal
+          group={editGroup}
+          onClose={() => setEditGroup(null)}
+          onSuccess={() => setEditGroup(null)}
         />
       )}
     </div>
