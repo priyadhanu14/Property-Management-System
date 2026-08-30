@@ -1,5 +1,5 @@
 """Bookings endpoints: CRUD, check-in, check-out, list/filter."""
-from datetime import date as date_type, datetime, time as time_type, timezone
+from datetime import date as date_type, datetime, time as time_type, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -162,6 +162,15 @@ def to_utc(dt: datetime) -> datetime:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
+# India Standard Time (UTC+5:30, no DST) — used for dates shown to the manager.
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def format_ist(dt: datetime) -> str:
+    """Format a datetime for display: dd/mm/yyyy hh:mm AM/PM in IST."""
+    return to_utc(dt).astimezone(IST).strftime("%d/%m/%Y %I:%M %p")
+
+
 # ---------------------------------------------------------------------------
 # CRUD
 # ---------------------------------------------------------------------------
@@ -195,11 +204,10 @@ async def create_booking(
         )
         conflict = (await session.execute(overlap_stmt)).scalars().first()
         if conflict:
-            fmt = lambda dt: to_utc(dt).strftime("%d %b %I:%M %p")
             raise HTTPException(
                 400,
                 f"Room '{room.unit_code}' is already booked from "
-                f"{fmt(conflict.start_datetime)} to {fmt(conflict.end_datetime)}",
+                f"{format_ist(conflict.start_datetime)} to {format_ist(conflict.end_datetime)}",
             )
 
     # Create group
@@ -426,11 +434,10 @@ async def add_room_to_group(
     )
     conflict = (await session.execute(overlap_stmt)).scalars().first()
     if conflict:
-        fmt = lambda dt: to_utc(dt).strftime("%d %b %I:%M %p")
         raise HTTPException(
             400,
             f"Room '{room.unit_code}' is already booked from "
-            f"{fmt(conflict.start_datetime)} to {fmt(conflict.end_datetime)}",
+            f"{format_ist(conflict.start_datetime)} to {format_ist(conflict.end_datetime)}",
         )
 
     booking = Booking(

@@ -34,7 +34,7 @@ class ExpenseCreate(BaseModel):
     room_id: int | None = None
     category: str = Field(..., min_length=1, max_length=64)
     amount: float = Field(..., gt=0)
-    month: date  # expects YYYY-MM-DD (first of month)
+    month: date  # date the expense was incurred/paid (YYYY-MM-DD)
     description: str | None = None
 
 
@@ -136,7 +136,7 @@ async def update_expense(
     if body.amount is not None:
         expense.amount = body.amount
     if body.month is not None:
-        expense.month = body.month.replace(day=1)
+        expense.month = body.month
     if body.room_id is not None:
         expense.room_id = body.room_id
     if body.description is not None:
