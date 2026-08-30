@@ -185,7 +185,7 @@ export function RoomTimeline({ roomId, unitCode, onBack }: RoomTimelineProps) {
                   className="flex-shrink-0 text-[10px] text-muted-foreground text-center"
                   style={{ width: `${100 / 7}%` }}
                 >
-                  {`${d.toLocaleDateString('en-US', { weekday: 'short' })} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`}
+                  {`${d.toLocaleDateString('en-IN', { weekday: 'short' })} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`}
                 </div>
               ))
             )}

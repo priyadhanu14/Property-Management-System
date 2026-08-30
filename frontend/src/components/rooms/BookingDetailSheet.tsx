@@ -21,7 +21,7 @@ function formatDate(d: Date): string {
 function formatRange(start: string, end: string): string {
   const d1 = new Date(start)
   const d2 = new Date(end)
-  return `${formatDate(d1)} ${d1.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${formatDate(d2)} ${d2.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  return `${formatDate(d1)} ${d1.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })} – ${formatDate(d2)} ${d2.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}`
 }
 
 function formatINR(n: number | null | undefined): string {

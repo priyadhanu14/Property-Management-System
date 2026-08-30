@@ -24,7 +24,7 @@ import type { BookingResponse, Room } from '@/types/rooms'
 
 type SlotType = 'morning' | 'evening'
 
-const ROOM_RATES: Record<string, number> = { '2BHK': 5000, '3BHK': 8000 }
+const ROOM_RATES: Record<string, number> = { '2BHK': 6000, '3BHK': 9000 }
 
 interface SelectedRoom {
   roomId: number
@@ -72,7 +72,7 @@ function formatDate(d: Date): string {
 function formatDateTime(iso: string | null) {
   if (!iso) return '—'
   const d = new Date(iso)
-  return `${formatDate(d)} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  return `${formatDate(d)} ${d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}`
 }
 
 function formatINR(n: number | null | undefined): string {
